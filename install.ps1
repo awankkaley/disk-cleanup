@@ -11,7 +11,7 @@ function Invoke-DiskCleanupInstaller {
     $ErrorActionPreference = 'Stop'
     $ProgressPreference = 'SilentlyContinue'
 
-    $Version = 'v1.1.0'
+    $Version = 'v1.2.0'
     $Repo = 'awankkaley/disk-cleanup'
     $SkillName = 'disk-cleanup'
     # A command file is ours only when it carries this marker line.
@@ -19,7 +19,7 @@ function Invoke-DiskCleanupInstaller {
     $ArchiveUrl = "https://github.com/$Repo/archive/refs/tags/$Version.zip"
     $KnownAgents = @('claude', 'codex', 'cursor', 'gemini', 'copilot', 'opencode', 'amp', 'goose', 'agents')
     # One namespaced command per mode, next to the plain /disk-cleanup command.
-    $CommandModes = @('scan', 'scan-only', 'deep', 'help')
+    $CommandModes = @('scan', 'scan-only', 'review', 'deep', 'help')
 
     function Get-HomeDir {
         $homeDir = $env:USERPROFILE
@@ -106,7 +106,7 @@ function Invoke-DiskCleanupInstaller {
         Write-Output ''
         Write-Output 'Gemini CLI and OpenCode also get small command files that only start the skill:'
         Write-Output "/$SkillName plus one per mode in a `"$SkillName`" subfolder (Gemini CLI shows"
-        Write-Output "them as /${SkillName}:scan, :scan-only, :deep, :help; OpenCode as /$SkillName/scan"
+        Write-Output "them as /${SkillName}:scan, :scan-only, :review, :deep, :help; OpenCode as /$SkillName/scan"
         Write-Output 'and so on), under .gemini\commands and .config\opencode\commands. A file of'
         Write-Output 'the same name that this installer did not write is never replaced or removed.'
     }

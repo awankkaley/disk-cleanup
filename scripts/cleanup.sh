@@ -5,12 +5,13 @@
 set -u
 export LC_ALL=C
 
-readonly VERSION="1.1.0"
+readonly VERSION="1.2.0"
 readonly SCHEMA_VERSION=1
 readonly PLATFORM="macos"
 readonly EXIT_ERROR=1
 readonly EXIT_USAGE=2
 readonly TOKEN_TTL_SECONDS=900
+readonly REVIEW_TOKEN_TTL_SECONDS=3600
 readonly SECONDS_PER_DAY=86400
 readonly DEFAULT_MIN_AGE_DAYS=7
 readonly MIN_AGE_DAYS_FLOOR=1
@@ -21,6 +22,13 @@ readonly MAX_DAY_DIGITS=5
 readonly DEEP_ONLY_CATEGORY="node-modules-stale"
 readonly TRASH_CATEGORY="trash"
 readonly TRASH_FLAG="--empty-trash"
+readonly MIN_TARGET_GB=1
+readonly MAX_TARGET_GB=10000
+readonly DEFAULT_MIN_SIZE_MB=100
+readonly MIN_SIZE_MB_FLOOR=10
+readonly MAX_SIZE_MB=1048576
+readonly DEFAULT_DOWNLOADS_AGE_DAYS=90
+readonly DOWNLOADS_AGE_DAYS_FLOOR=7
 
 OPT_DEEP=0
 OPT_MIN_AGE=$DEFAULT_MIN_AGE_DAYS
@@ -29,6 +37,10 @@ OPT_TOKEN=""
 OPT_EMPTY_TRASH=0
 OPT_MIN_IDLE=$DEFAULT_MIN_IDLE_DAYS
 OPT_LOG=0
+OPT_TARGET_GB=""
+OPT_MIN_SIZE_MB=$DEFAULT_MIN_SIZE_MB
+OPT_DOWNLOADS_AGE=$DEFAULT_DOWNLOADS_AGE_DAYS
+REVIEW_MODE=0
 
 # Directory of this file after following symlinks, so lib/ is found when the
 # script is linked into a PATH directory.
@@ -77,6 +89,22 @@ source "$SCRIPT_DIR/lib/projects.sh"
 source "$SCRIPT_DIR/lib/scan.sh"
 # shellcheck source=scripts/lib/clean.sh
 source "$SCRIPT_DIR/lib/clean.sh"
+# shellcheck source=scripts/lib/selection.sh
+source "$SCRIPT_DIR/lib/selection.sh"
+# shellcheck source=scripts/lib/report.sh
+source "$SCRIPT_DIR/lib/report.sh"
+# shellcheck source=scripts/lib/review.sh
+source "$SCRIPT_DIR/lib/review.sh"
+# shellcheck source=scripts/lib/trash.sh
+source "$SCRIPT_DIR/lib/trash.sh"
+# shellcheck source=scripts/lib/apply.sh
+source "$SCRIPT_DIR/lib/apply.sh"
+
+# is_uint_between VALUE MIN MAX
+is_uint_between() {
+  is_uint "${1:-}" || return 1
+  [ "$((10#$1))" -ge "$2" ] && [ "$((10#$1))" -le "$3" ]
+}
 
 # is_day_count VALUE FLOOR
 is_day_count() {
@@ -121,6 +149,12 @@ parse_scan_args() {
         OPT_PROJECTS_DIR=$2
         shift
         ;;
+      --target-gb)
+        [ $# -ge 2 ] || fail USAGE
+        is_uint_between "$2" "$MIN_TARGET_GB" "$MAX_TARGET_GB" || fail INVALID_ARGUMENT
+        OPT_TARGET_GB=$((10#$2))
+        shift
+        ;;
       *) fail USAGE ;;
     esac
     shift
@@ -153,6 +187,32 @@ parse_clean_args() {
   parse_categories "$categories"
 }
 
+parse_review_args() {
+  while [ $# -gt 0 ]; do
+    [ $# -ge 2 ] || fail USAGE
+    case "$1" in
+      --min-size-mb)
+        is_uint_between "$2" "$MIN_SIZE_MB_FLOOR" "$MAX_SIZE_MB" || fail INVALID_ARGUMENT
+        OPT_MIN_SIZE_MB=$((10#$2))
+        ;;
+      --downloads-age-days)
+        is_day_count "$2" "$DOWNLOADS_AGE_DAYS_FLOOR" || fail INVALID_ARGUMENT
+        OPT_DOWNLOADS_AGE=$((10#$2))
+        ;;
+      *) fail USAGE ;;
+    esac
+    shift 2
+  done
+}
+
+parse_apply_args() {
+  while [ $# -gt 0 ]; do
+    [ "$1" = "--token" ] && [ $# -ge 2 ] || fail USAGE
+    OPT_TOKEN=$2
+    shift 2
+  done
+}
+
 main() {
   local action=${1:-}
   exec 2> /dev/null
@@ -172,6 +232,17 @@ main() {
       parse_clean_args "$@"
       init_environment
       run_clean
+      ;;
+    review)
+      parse_review_args "$@"
+      init_environment
+      run_review
+      ;;
+    review-apply)
+      REVIEW_MODE=1
+      parse_apply_args "$@"
+      init_environment
+      run_review_apply
       ;;
     *) fail USAGE ;;
   esac

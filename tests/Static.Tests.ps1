@@ -16,6 +16,16 @@ BeforeAll {
             }
         }
     }
+
+    function Get-SourceLineList {
+        param([string]$Pattern)
+        foreach ($file in $script:sourceFiles) {
+            foreach ($line in [System.IO.File]::ReadAllLines($file)) {
+                if ($line.TrimStart().StartsWith('#')) { continue }
+                if ($line -match $Pattern) { $line }
+            }
+        }
+    }
 }
 
 Describe 'source rules' {
@@ -69,9 +79,43 @@ Describe 'source rules' {
 
     It 'removes files in exactly one place' {
         (@(Get-SourceMatchList -Pattern 'Remove-Item|\brm\b|\bdel\b|\berase\b|\brmdir\b') -join ', ') | Should -BeNullOrEmpty
-        $deleteCalls = @(Get-SourceMatchList -Pattern '\.Delete\(|::Delete\(|DeleteFile|DeleteDirectory')
+        $deleteCalls = @(Get-SourceMatchList -Pattern '\.Delete\(|::Delete\(|DeleteDirectory|DeletePermanently')
         $deleteCalls.Count | Should -Be 1
         $deleteCalls[0] | Should -Match '^FileSystem\.ps1:'
+    }
+
+    It 'moves personal files in exactly one place, and only to the Recycle Bin' {
+        $trashCalls = @(Get-SourceMatchList -Pattern 'DeleteFile|SendToRecycleBin|RecycleOption|SHFileOperation')
+        $trashCalls.Count | Should -Be 1
+        $trashCalls[0] | Should -Match '^Platform\.ps1:'
+        $line = @(Get-SourceLineList -Pattern 'DeleteFile')[0]
+        $line | Should -MatchExactly '::DeleteFile\(\$Path, ''OnlyErrorDialogs'', ''SendToRecycleBin''\)'
+        $moves = '\.MoveTo\(|::Move\(|Move-Item|Rename-Item|\.CopyTo\(|::Copy\(|Copy-Item|File\]::Replace\(|MoveFile|CopyFile'
+        (@(Get-SourceMatchList -Pattern $moves) -join ', ') | Should -BeNullOrEmpty
+        @(Get-SourceMatchList -Pattern 'Send-FileToRecycleBin').Count | Should -Be 2
+    }
+
+    It 'opens nothing but the review report, and never with a verb' {
+        $shellCalls = @(Get-SourceMatchList -Pattern 'UseShellExecute\s*=\s*\$true|Invoke-Item|ShellExecute\(|explorer\.exe')
+        $shellCalls.Count | Should -Be 1
+        $shellCalls[0] | Should -Match '^Platform\.ps1:'
+        (@(Get-SourceMatchList -Pattern '\.Verb\b') -join ', ') | Should -BeNullOrEmpty
+        @(Get-SourceMatchList -Pattern 'Open-ReviewReport').Count | Should -Be 2
+    }
+
+    It 'never parses the selection file as JSON and never evaluates text' {
+        (@(Get-SourceMatchList -Pattern 'Invoke-Expression|\biex\b|ScriptBlock\]::Create|Import-Clixml') -join ', ') | Should -BeNullOrEmpty
+        $jsonCalls = @(Get-SourceMatchList -Pattern 'ConvertFrom-Json')
+        $jsonCalls.Count | Should -Be 1
+        $jsonCalls[0] | Should -Match '^Options\.ps1:'
+    }
+
+    It 'lets the test seams only switch work off' {
+        $seams = @(Get-SourceLineList -Pattern 'env:DISK_CLEANUP_')
+        $seams.Count | Should -Be 2
+        foreach ($seam in $seams) {
+            $seam.Trim() | Should -MatchExactly '^if \(\$env:DISK_CLEANUP_SKIP_[A-Z_]+ -eq \$script:SKIP_SEAM_VALUE\) \{ return (\$false|\$script:RECYCLE_FAILED) \}$'
+        }
     }
 
     It 'never elevates, kills processes, changes permissions or goes online' {
@@ -137,6 +181,24 @@ Describe 'category catalog' {
             } else {
                 $category['RequiresFlag'] | Should -BeNullOrEmpty
             }
+        }
+    }
+
+    It 'gives every category a rebuild cost of 1, 2 or 3' {
+        foreach ($category in $script:CATEGORIES) {
+            $category['RebuildCost'] | Should -BeOfType [int]
+            @(1, 2, 3) | Should -Contain $category['RebuildCost']
+        }
+    }
+
+    It 'knows the chat apps everyday users have, by cache folder only' {
+        $names = @($script:KNOWN_APP_CACHES | ForEach-Object { $_['Name'] })
+        foreach ($expected in @('Slack', 'Discord', 'Microsoft Teams', 'Spotify', 'Visual Studio Code', 'WhatsApp', 'Telegram')) {
+            $names | Should -Contain $expected
+        }
+        foreach ($app in $script:KNOWN_APP_CACHES) {
+            $app['Path'] | Should -Not -Match '^[\\/]|\.\.|:'
+            @($app['Processes']).Count | Should -BeGreaterThan 0
         }
     }
 
@@ -212,8 +274,10 @@ Describe 'category catalog' {
     It 'has a static message for every error code' {
         $codes = @(
             'USAGE', 'UNKNOWN_CATEGORY', 'TOKEN_MISSING', 'TOKEN_INVALID', 'TOKEN_EXPIRED', 'CATEGORY_NOT_IN_SCAN',
-            'TRASH_FLAG_REQUIRED', 'DEEP_SCAN_REQUIRED', 'INVALID_ARGUMENT', 'UNSUPPORTED_PLATFORM', 'INTERNAL'
+            'TRASH_FLAG_REQUIRED', 'DEEP_SCAN_REQUIRED', 'INVALID_ARGUMENT', 'UNSUPPORTED_PLATFORM', 'INTERNAL',
+            'SELECTION_NOT_FOUND', 'SELECTION_INVALID'
         )
+        $script:ERROR_MESSAGES.Count | Should -Be $codes.Count
         foreach ($code in $codes) {
             $script:ERROR_MESSAGES[$code] | Should -Not -BeNullOrEmpty
             $script:ERROR_MESSAGES[$code] | Should -Not -Match '[\\/]'

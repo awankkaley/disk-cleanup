@@ -1,6 +1,6 @@
 {
   "name": "disk-cleanup",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Free disk space on macOS and Windows privately. One bundled script reports category totals only, never file names, and nothing is deleted before you choose.",
   "author": {
     "name": "awankkaley",

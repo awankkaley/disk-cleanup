@@ -1,5 +1,5 @@
 $script:SCHEMA_VERSION = 1
-$script:TOOL_VERSION = '1.1.0'
+$script:TOOL_VERSION = '1.2.0'
 $script:PLATFORM_NAME = 'windows'
 $script:WINDOWS_OS_NAME = 'Windows_NT'
 $script:JSON_DEPTH = 8
@@ -29,20 +29,24 @@ $script:FAILURE_PREFIX = 'disk-cleanup-failure:'
 $script:ERROR_MESSAGES = @{
     'USAGE'                = 'Invalid command line. Run with --help to see the supported commands and flags.'
     'UNKNOWN_CATEGORY'     = 'A requested category id is not known on this platform. Use only ids returned by scan.'
-    'TOKEN_MISSING'        = 'clean requires --token with the token printed by a recent scan.'
-    'TOKEN_INVALID'        = 'The token does not match the latest scan. Run scan again.'
-    'TOKEN_EXPIRED'        = 'Run scan again; the previous scan is older than 15 minutes.'
+    'TOKEN_MISSING'        = 'This command requires --token with the token printed by a recent scan or review.'
+    'TOKEN_INVALID'        = 'The token does not match the latest scan or review. Run scan or review again.'
+    'TOKEN_EXPIRED'        = 'The token has expired (scan: 15 minutes, review: 60 minutes). Run scan or review again.'
     'CATEGORY_NOT_IN_SCAN' = 'A requested category was not reported with status ok by that scan.'
     'TRASH_FLAG_REQUIRED'  = 'The trash category also requires the --empty-trash flag.'
     'DEEP_SCAN_REQUIRED'   = 'node-modules-stale requires a token from a scan run with --deep.'
     'INVALID_ARGUMENT'     = 'A flag value is not valid. Run with --help to see the accepted values.'
     'UNSUPPORTED_PLATFORM' = 'This script supports Windows only. Use cleanup.sh on macOS.'
+    'SELECTION_NOT_FOUND'  = 'No saved selection was found in the Downloads folder. Ask the user to press Save selection in the review page first.'
+    'SELECTION_INVALID'    = 'The saved selection is damaged or belongs to another review. Ask the user to save the selection again.'
     'INTERNAL'             = 'Unexpected internal error. Nothing further was changed.'
 }
 
 $script:USAGE_LINES = @(
-    'cleanup scan [--deep] [--min-age-days N] [--projects-dir PATH]',
+    'cleanup scan [--deep] [--min-age-days N] [--projects-dir PATH] [--target-gb N]',
     'cleanup clean --token ID --categories id1,id2 [--empty-trash] [--min-idle-days N] [--log]',
+    'cleanup review [--min-size-mb N] [--downloads-age-days N]',
+    'cleanup review-apply --token ID',
     'cleanup --help',
     'cleanup --version'
 )

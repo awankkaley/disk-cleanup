@@ -2,7 +2,12 @@
 # 'zq' so the privacy assertions can prove that no fixture name reaches stdout.
 
 $script:FIXTURE_MARKER = 'zq'
-$script:SANDBOX_ENV_NAMES = @('USERPROFILE', 'LOCALAPPDATA', 'APPDATA')
+$script:SANDBOX_ENV_NAMES = @(
+    'USERPROFILE', 'LOCALAPPDATA', 'APPDATA', 'DISK_CLEANUP_SKIP_REPORT_OPEN', 'DISK_CLEANUP_SKIP_RECYCLE'
+)
+$script:PATH_HINT_FIELDS = @('log_location_hint', 'report_location_hint', 'selection_file_hint')
+$script:REVIEW_TEST_SIZE_MB = '10'
+$script:BYTES_PER_TEST_MEGABYTE = 1048576
 $script:SavedEnvironment = @{}
 $script:SandboxJunctions = New-Object -TypeName 'System.Collections.Generic.List[string]'
 
@@ -19,6 +24,10 @@ function Initialize-Sandbox {
         Outside   = Join-Path -Path $base -ChildPath 'zqoutside'
         StateDir  = Join-Path -Path $homeDir -ChildPath 'AppData\Local\disk-cleanup'
         StateFile = Join-Path -Path $homeDir -ChildPath 'AppData\Local\disk-cleanup\state'
+        Downloads = Join-Path -Path $homeDir -ChildPath 'Downloads'
+        Manifest  = Join-Path -Path $homeDir -ChildPath 'AppData\Local\disk-cleanup\review-manifest'
+        Report    = Join-Path -Path $homeDir -ChildPath 'AppData\Local\disk-cleanup\review.html'
+        Recycle   = Join-Path -Path $base -ChildPath 'zqrecycle'
     }
     foreach ($directory in @($sandbox.Local, $sandbox.Roaming, $sandbox.Temp, $sandbox.Outside)) {
         [void][System.IO.Directory]::CreateDirectory($directory)
@@ -30,6 +39,10 @@ function Initialize-Sandbox {
     $env:USERPROFILE = $sandbox.Home
     $env:LOCALAPPDATA = $sandbox.Local
     $env:APPDATA = $sandbox.Roaming
+    # Belt and braces for every suite and every child process: even where a mock is
+    # missing, no browser opens and nothing reaches the real Recycle Bin.
+    $env:DISK_CLEANUP_SKIP_REPORT_OPEN = '1'
+    $env:DISK_CLEANUP_SKIP_RECYCLE = '1'
     return $sandbox
 }
 
@@ -128,7 +141,7 @@ function Get-JsonStringList {
     if ($Node -is [System.Management.Automation.PSCustomObject]) {
         foreach ($property in $Node.PSObject.Properties) {
             $property.Name
-            if ($property.Name -ne 'log_location_hint') { Get-JsonStringList -Node $property.Value }
+            if ($script:PATH_HINT_FIELDS -notcontains $property.Name) { Get-JsonStringList -Node $property.Value }
         }
     }
 }
@@ -258,4 +271,113 @@ function Get-ExternalSandboxRoot {
         if (-not $inside) { return $candidate }
     }
     return $null
+}
+
+# A file of a whole number of megabytes whose content is never written, so even the
+# 10 MB minimum of the review command costs no time.
+function Add-SandboxBigFile {
+    param([string]$Path, [int]$SizeMb, [int]$AgeDays = 0)
+    [void][System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($Path))
+    $stream = [System.IO.File]::Create($Path)
+    try {
+        $stream.SetLength([long]$SizeMb * $script:BYTES_PER_TEST_MEGABYTE)
+    } finally {
+        $stream.Dispose()
+    }
+    if ($AgeDays -gt 0) {
+        [System.IO.File]::SetLastWriteTimeUtc($Path, [System.DateTime]::UtcNow.AddDays(-1 * $AgeDays))
+    }
+}
+
+# Personal files for the review suites. With 'review --min-size-mb 10' the report
+# lists, largest first: 1 Holiday (12 MB), 2 Archive (11 MB), 3 BigDownload (10 MB,
+# large-files wins over old-downloads), 4 OldInstaller (300 bytes), 5 OldNotes
+# (200 bytes). Large files: 3 items, 34603008 bytes. Old downloads: 2 items, 500 bytes.
+# The remaining files must never be listed.
+function Add-SandboxReviewFixture {
+    param($Sandbox)
+    $paths = [pscustomobject]@{
+        Holiday      = Join-Path -Path $Sandbox.Home -ChildPath 'Videos\zqholiday.mp4'
+        Archive      = Join-Path -Path $Sandbox.Home -ChildPath 'Documents\zqarchive.zip'
+        BigDownload  = Join-Path -Path $Sandbox.Downloads -ChildPath 'zqbig-old.iso'
+        OldInstaller = Join-Path -Path $Sandbox.Downloads -ChildPath 'zqold-installer.exe'
+        OldNotes     = Join-Path -Path $Sandbox.Downloads -ChildPath 'zqold-notes.txt'
+        Recent       = Join-Path -Path $Sandbox.Downloads -ChildPath 'zqrecent.pdf'
+        Small        = Join-Path -Path $Sandbox.Home -ChildPath 'Documents\zqsmall.txt'
+        Nested       = Join-Path -Path $Sandbox.Downloads -ChildPath 'zqsub\zqnested-old.bin'
+    }
+    Add-SandboxBigFile -Path $paths.Holiday -SizeMb 12 -AgeDays 20
+    Add-SandboxBigFile -Path $paths.Archive -SizeMb 11 -AgeDays 400
+    Add-SandboxBigFile -Path $paths.BigDownload -SizeMb 10 -AgeDays 200
+    Add-SandboxFile -Path $paths.OldInstaller -SizeBytes 300 -AgeDays 200
+    Add-SandboxFile -Path $paths.OldNotes -SizeBytes 200 -AgeDays 120
+    Add-SandboxFile -Path $paths.Recent -SizeBytes 150 -AgeDays 2
+    Add-SandboxFile -Path $paths.Small -SizeBytes 50 -AgeDays 400
+    Add-SandboxFile -Path $paths.Nested -SizeBytes 100 -AgeDays 300
+    [void][System.IO.Directory]::CreateDirectory($Sandbox.Recycle)
+    return $paths
+}
+
+# Large files in every kind of location the review must never enter. Returns their paths.
+function Add-SandboxReviewPruned {
+    param($Sandbox)
+    $relative = @(
+        'AppData\Local\zqapp\zqdata.bin', 'AppData\Roaming\zqapp\zqstore.bin', '.zqhidden\zqbig.bin',
+        'zqproject\node_modules\zqpackage\zqbig.bin', 'Library\zqbig.bin',
+        'Pictures\zqPhotos.photoslibrary\zqoriginal.bin', 'zqMachine.VMWAREVM\zqdisk.vmdk',
+        'zqApps\zqTool.app\zqbinary.bin', 'Music\zqSongs.band\zqtake.bin'
+    )
+    $paths = @(foreach ($item in $relative) { Join-Path -Path $Sandbox.Home -ChildPath $item })
+    foreach ($path in $paths) { Add-SandboxBigFile -Path $path -SizeMb 10 -AgeDays 100 }
+    return $paths
+}
+
+function Invoke-ReviewForToken {
+    param([string[]]$Extra = @())
+    $run = Invoke-CleanupJson -Arguments ([string[]](@('review', '--min-size-mb', $script:REVIEW_TEST_SIZE_MB) + $Extra))
+    return [string]$run.Data.token
+}
+
+# Writes what the Save selection button of the report downloads.
+function Add-SandboxSelection {
+    param($Sandbox, [string]$Token, [int[]]$Ids = @(), [string]$Name = 'disk-cleanup-selection.json')
+    $content = '{"token":"' + $Token + '","ids":[' + ($Ids -join ',') + ']}'
+    $path = Join-Path -Path $Sandbox.Downloads -ChildPath $Name
+    [void][System.IO.Directory]::CreateDirectory($Sandbox.Downloads)
+    [System.IO.File]::WriteAllText($path, $content, (New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false))
+    return $path
+}
+
+function Set-SandboxManifestEpoch {
+    param([string]$Manifest, [string]$Replacement)
+    $text = [System.IO.File]::ReadAllText($Manifest)
+    $changed = [regex]::Replace($text, '(?m)^epoch [0-9]+$', ('epoch ' + $Replacement))
+    [System.IO.File]::WriteAllText($Manifest, $changed)
+}
+
+# Points one manifest entry at another existing file, copying that file's real
+# length and modification time, so that only the review guard can refuse it.
+function Set-SandboxManifestPath {
+    param([string]$Manifest, [int]$Id, [string]$Path)
+    $tab = [string][char]9
+    $file = New-Object -TypeName System.IO.FileInfo -ArgumentList $Path
+    $lines = [System.IO.File]::ReadAllText($Manifest).Split([char]10)
+    $changed = @(foreach ($line in $lines) {
+            $fields = @($line.Split([char]9))
+            if (($fields.Count -eq 6) -and ($fields[0] -eq [string]$Id)) {
+                $ticks = [string]$file.LastWriteTimeUtc.Ticks
+                (@($fields[0], [string]$file.Length, [string]$file.Length, $ticks, $fields[4], $Path) -join $tab)
+            } else {
+                $line
+            }
+        })
+    [System.IO.File]::WriteAllText($Manifest, ($changed -join [string][char]10))
+}
+
+function Get-SandboxManifestPathList {
+    param([string]$Manifest)
+    foreach ($line in [System.IO.File]::ReadAllText($Manifest).Split([char]10)) {
+        $fields = @($line.Split([char]9))
+        if ($fields.Count -eq 6) { $fields[5] }
+    }
 }

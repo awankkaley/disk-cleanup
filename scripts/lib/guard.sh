@@ -6,6 +6,7 @@ readonly GUARD_INCOMPLETE=2
 readonly BLOCK_BYTES=512
 readonly TEMP_ROOT_PREFIX="/private/var/folders"
 readonly TRASH_NAME=".Trash"
+readonly DOWNLOADS_FOLDER="Downloads"
 readonly TREE_MODE_NAME="node_modules"
 readonly ACCOUNT_HOME_KEY="NFSHomeDirectory"
 readonly PASSWD_HOME_FIELD=9
@@ -142,8 +143,19 @@ relative_is_guarded() {
   return "$verdict"
 }
 
+# The one exception inside a protected folder: the selection file this tool
+# asked the browser to save, directly in Downloads, under its fixed name.
+selection_location_is_allowed() {
+  local name=${1##*/}
+  [ "$1" = "$HOME_PHYS/$DOWNLOADS_FOLDER/$name" ] && is_selection_name "$name"
+}
+
 location_is_allowed() {
   local mode=$1 physical=$2 relative
+  if [ "$mode" = "selection" ]; then
+    selection_location_is_allowed "$physical"
+    return
+  fi
   case "$physical" in
     "$HOME_PHYS"/*)
       relative=${physical#"$HOME_PHYS"/}
@@ -173,7 +185,7 @@ guard_resolve() {
   parent=${path%/*}
   case "$name" in "" | "." | "..") return 1 ;; esac
   case "$mode" in
-    file) [ -f "$path" ] || return 1 ;;
+    file | selection) [ -f "$path" ] || return 1 ;;
     contents | old-files | empty-dir) [ -d "$path" ] || return 1 ;;
     tree) [ -d "$path" ] && [ "$name" = "$TREE_MODE_NAME" ] || return 1 ;;
     *) return 1 ;;
@@ -189,6 +201,8 @@ guard_resolve() {
 #   empty-dir  directory PATH itself, only when nothing is inside it
 #   file       the regular file PATH
 #   old-files  regular files inside PATH not modified for more than DAYS days
+#   selection  the saved selection file PATH in Downloads, only while its
+#              content names the review token given as third argument
 guarded_delete() {
   local mode=${1:-} path=${2:-} days=${3:-} physical sink leftover
   local selector=()
@@ -198,6 +212,10 @@ guarded_delete() {
     tree) selector=(-mindepth 0) ;;
     empty-dir) selector=(-maxdepth 0 -type d -empty) ;;
     file) selector=(-maxdepth 0 -type f) ;;
+    selection)
+      selection_matches_token "$physical" "$days" || return "$GUARD_REFUSED"
+      selector=(-maxdepth 0 -type f)
+      ;;
     old-files)
       is_uint "$days" && [ "$days" -ge 1 ] || return "$GUARD_REFUSED"
       selector=(-mindepth 1 -type f -mtime "+$days")

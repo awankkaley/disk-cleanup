@@ -254,3 +254,179 @@ function Invoke-Tool {
     }
     return (Invoke-ToolProcess -StartInfo $startInfo)
 }
+
+$script:SKIP_SEAM_VALUE = '1'
+$script:RECYCLE_TRASHED = 'trashed'
+$script:RECYCLE_DENIED = 'denied'
+$script:RECYCLE_FAILED = 'failed'
+$script:RECYCLE_POLICY_KEY = 'Software\Microsoft\Windows\CurrentVersion\Policies\Explorer'
+$script:RECYCLE_POLICY_VALUE = 'NoRecycleFiles'
+$script:RECYCLE_VOLUME_KEY = 'Software\Microsoft\Windows\CurrentVersion\Explorer\BitBucket\Volume'
+$script:RECYCLE_CAPACITY_VALUE = 'MaxCapacity'
+$script:RECYCLE_BYPASS_VALUE = 'NukeOnDelete'
+$script:RECYCLE_CAPACITY_UNIT_BYTES = 1048576
+$script:RECYCLE_FALLBACK_DIVISOR = 20
+$script:REGISTRY_SWITCH_ON = 1
+$script:VOLUME_GUID_PATTERN = '\{[0-9A-Fa-f-]{36}\}'
+$script:DRIVE_NAME_LENGTH = 2
+$script:NATIVE_NAMESPACE = 'DiskCleanupNative'
+$script:NATIVE_TYPE_NAME = 'FileSize'
+$script:NATIVE_SIZE_MEMBER = @'
+[DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+private static extern uint GetCompressedFileSizeW(string lpFileName, out uint lpFileSizeHigh);
+
+public static long Measure(string path)
+{
+    uint high;
+    uint low = GetCompressedFileSizeW(path, out high);
+    if (low == 0xFFFFFFFF && Marshal.GetLastWin32Error() != 0) { return -1; }
+    return ((long)high << 32) + (long)low;
+}
+'@
+
+# The only place that opens anything for the user: the local review report, handed to
+# the shell so the default browser shows it. No verb is set, so nothing is elevated.
+# The environment switch can only suppress the open; tests and unattended runs use it.
+function Open-ReviewReport {
+    param([string]$Path)
+    if ($env:DISK_CLEANUP_SKIP_REPORT_OPEN -eq $script:SKIP_SEAM_VALUE) { return $false }
+    try {
+        $info = New-Object -TypeName System.Diagnostics.ProcessStartInfo
+        $info.FileName = $Path
+        $info.UseShellExecute = $true
+        $process = [System.Diagnostics.Process]::Start($info)
+        if ($null -ne $process) { $process.Dispose() }
+    } catch {
+        return $false
+    }
+    return $true
+}
+
+function Test-AccessDeniedError {
+    param($Exception)
+    $current = $Exception
+    while ($null -ne $current) {
+        if ($current -is [System.UnauthorizedAccessException]) { return $true }
+        if ($current -is [System.Security.SecurityException]) { return $true }
+        $current = $current.InnerException
+    }
+    return $false
+}
+
+# The only place that moves a personal file, and it only ever moves it to the Recycle
+# Bin, where the user can restore it. Nothing here deletes permanently. The
+# environment switch can only make it do nothing and report a failure.
+function Send-FileToRecycleBin {
+    param([string]$Path)
+    if ($env:DISK_CLEANUP_SKIP_RECYCLE -eq $script:SKIP_SEAM_VALUE) { return $script:RECYCLE_FAILED }
+    try {
+        Add-Type -AssemblyName Microsoft.VisualBasic
+        [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($Path, 'OnlyErrorDialogs', 'SendToRecycleBin')
+    } catch {
+        if (Test-AccessDeniedError -Exception $_.Exception) { return $script:RECYCLE_DENIED }
+        return $script:RECYCLE_FAILED
+    }
+    return $script:RECYCLE_TRASHED
+}
+
+function Get-RegistryNumber {
+    param($Hive, [string]$KeyPath, [string]$Name)
+    $key = $Hive.OpenSubKey($KeyPath)
+    if ($null -eq $key) { return $null }
+    try {
+        $value = $key.GetValue($Name)
+    } finally {
+        $key.Dispose()
+    }
+    if ($null -eq $value) { return $null }
+    return [long]$value
+}
+
+function Test-RecyclePolicyOff {
+    foreach ($hive in @([Microsoft.Win32.Registry]::CurrentUser, [Microsoft.Win32.Registry]::LocalMachine)) {
+        $setting = Get-RegistryNumber -Hive $hive -KeyPath $script:RECYCLE_POLICY_KEY -Name $script:RECYCLE_POLICY_VALUE
+        if ($setting -eq $script:REGISTRY_SWITCH_ON) { return $true }
+    }
+    return $false
+}
+
+# Registry keys that hold the Recycle Bin settings to respect for a file: the key of
+# the file's own volume when Windows can name that volume, otherwise every volume key
+# of the user, so that the strictest setting applies.
+function Get-RecycleVolumeKeyList {
+    param([string]$Path)
+    $drive = [System.IO.Path]::GetPathRoot($Path).Substring(0, $script:DRIVE_NAME_LENGTH)
+    $filter = "DriveLetter = '" + $drive + "'"
+    try {
+        $volumes = @(Get-CimInstance -ClassName Win32_Volume -Filter $filter -ErrorAction Stop)
+    } catch {
+        $volumes = @()
+    }
+    if ($volumes.Count -eq 1) {
+        $found = [regex]::Match([string]$volumes[0].DeviceID, $script:VOLUME_GUID_PATTERN)
+        if ($found.Success) { return ($script:RECYCLE_VOLUME_KEY + '\' + $found.Value) }
+    }
+    $root = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($script:RECYCLE_VOLUME_KEY)
+    if ($null -eq $root) { return }
+    try {
+        $names = @($root.GetSubKeyNames())
+    } finally {
+        $root.Dispose()
+    }
+    foreach ($name in $names) { $script:RECYCLE_VOLUME_KEY + '\' + $name }
+}
+
+# Largest file, in bytes, the Recycle Bin accepts for this file: 0 when the user
+# turned the bin off, $null when Windows has no setting to go by.
+function Get-RecycleVolumeLimit {
+    param([string]$Path)
+    $user = [Microsoft.Win32.Registry]::CurrentUser
+    $limit = $null
+    foreach ($keyPath in @(Get-RecycleVolumeKeyList -Path $Path)) {
+        $bypass = Get-RegistryNumber -Hive $user -KeyPath $keyPath -Name $script:RECYCLE_BYPASS_VALUE
+        if ($bypass -eq $script:REGISTRY_SWITCH_ON) { return [long]0 }
+        $capacity = Get-RegistryNumber -Hive $user -KeyPath $keyPath -Name $script:RECYCLE_CAPACITY_VALUE
+        if ($null -eq $capacity) { continue }
+        $bytes = [long]$capacity * $script:RECYCLE_CAPACITY_UNIT_BYTES
+        if (($null -eq $limit) -or ($bytes -lt $limit)) { $limit = $bytes }
+    }
+    return $limit
+}
+
+# Windows silently destroys a file that is too big for the Recycle Bin, or any file
+# when the bin is switched off, instead of recycling it. Such a file is never handed
+# over. Without a per-volume setting the smallest Windows default (5% of the volume)
+# is assumed. Any doubt counts as "does not fit".
+function Test-RecycleBinCanHold {
+    param([string]$Path, [long]$Bytes)
+    try {
+        if (Test-RecyclePolicyOff) { return $false }
+        $limit = Get-RecycleVolumeLimit -Path $Path
+        if ($null -eq $limit) {
+            $drive = New-Object -TypeName System.IO.DriveInfo -ArgumentList ([System.IO.Path]::GetPathRoot($Path))
+            $limit = [long][System.Math]::Floor([double]$drive.TotalSize / $script:RECYCLE_FALLBACK_DIVISOR)
+        }
+    } catch {
+        return $false
+    }
+    return ($Bytes -le $limit)
+}
+
+# Bytes the file really occupies on disk (smaller than its length for sparse,
+# compressed and cloud-only files). $null when Windows cannot say.
+function Get-AllocatedFileSize {
+    param([string]$Path)
+    try {
+        $typeName = $script:NATIVE_NAMESPACE + '.' + $script:NATIVE_TYPE_NAME
+        if ($null -eq ($typeName -as [type])) {
+            Add-Type -MemberDefinition $script:NATIVE_SIZE_MEMBER -Name $script:NATIVE_TYPE_NAME `
+                -Namespace $script:NATIVE_NAMESPACE
+        }
+        $native = $typeName -as [type]
+        $size = [long]$native::Measure($Path)
+        if ($size -lt 0) { return $null }
+        return $size
+    } catch {
+        return $null
+    }
+}

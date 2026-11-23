@@ -6,7 +6,9 @@
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CLEANUP="$PROJECT_ROOT/scripts/cleanup.sh"
 JSON_TOOL="$PROJECT_ROOT/tests/helpers/json.pl"
-SYSTEM_TOOLS="find du stat awk od tr uname readlink id dscl"
+SYSTEM_TOOLS="find du stat awk od tr uname readlink id dscl sort"
+REVIEW_TEST_MIN_MB=10
+MEBIBYTE=1048576
 SANDBOX_MARKER="disk-cleanup-test"
 
 setup_sandbox() {
@@ -215,4 +217,67 @@ make_project() {
   make_file "$dir/src/index.js" 1
   make_file "$dir/node_modules/left-pad/index.js" 16
   age_tree "$dir" "$idle_days"
+}
+
+# make_big_file PATH [MEGABYTES]: really allocated, large enough for a review.
+make_big_file() {
+  local path=$1 megabytes=${2:-11}
+  mkdir -p "$(dirname "$path")"
+  head -c "$((megabytes * MEBIBYTE))" /dev/zero > "$path"
+}
+
+# A file with a size but no allocated blocks, like a cloud-only placeholder.
+make_placeholder_file() {
+  local path=$1 megabytes=${2:-20}
+  mkdir -p "$(dirname "$path")"
+  /bin/dd if=/dev/zero of="$path" bs=1 count=0 seek="$((megabytes * MEBIBYTE))" 2> /dev/null
+}
+
+stub_open() {
+  stub_tool open "${1:-exit 0}"
+}
+
+# Fake Finder: osascript moves the file named by its last argument into the
+# sandbox Trash, the way "tell Finder to delete" would.
+install_finder_stub() {
+  stub_tool osascript 'for target in "$@"; do :; done
+/bin/mkdir -p "$HOME/.Trash"
+/bin/mv -n "$target" "$HOME/.Trash/"'
+}
+
+run_review() {
+  run_cleanup review --min-size-mb "$REVIEW_TEST_MIN_MB" "$@"
+}
+
+# Runs a review and stores its token in TOKEN.
+review_for_token() {
+  run_review "$@"
+  [ "$status" -eq 0 ] || { echo "review failed: $output"; return 1; }
+  TOKEN=$(json get token)
+  MANIFEST="$STATE_DIR/review-manifest"
+  REPORT="$STATE_DIR/review.html"
+}
+
+# Prints the manifest id of the item with this absolute path.
+manifest_id() {
+  WANTED_PATH=$1 /usr/bin/awk -F '\t' '$6 == ENVIRON["WANTED_PATH"] { print $1 }' "$MANIFEST"
+}
+
+manifest_paths() {
+  /usr/bin/awk -F '\t' 'NF == 6 { print $6 }' "$MANIFEST"
+}
+
+# write_selection TOKEN IDS [FILE NAME]: what the report's Save button writes.
+write_selection() {
+  local name=${3:-disk-cleanup-selection.json}
+  mkdir -p "$SANDBOX_HOME/Downloads"
+  printf '{"token":"%s","ids":[%s]}' "$1" "$2" > "$SANDBOX_HOME/Downloads/$name"
+}
+
+apply_review() {
+  run_cleanup review-apply --token "${1:-$TOKEN}"
+}
+
+trash_holds() {
+  [ -f "$SANDBOX_HOME/.Trash/$1" ] || { echo "not in the Trash: $1"; return 1; }
 }

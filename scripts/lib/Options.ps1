@@ -7,10 +7,16 @@ $script:HOME_SHORTCUT = '~'
 
 # Value $true means the flag takes a value; $false means it is a switch.
 $script:FLAG_SPECS = @{
-    'scan'  = @{ '--deep' = $false; '--min-age-days' = $true; '--projects-dir' = $true }
-    'clean' = @{ '--token' = $true; '--categories' = $true; '--empty-trash' = $false
+    'scan'         = @{ '--deep' = $false; '--min-age-days' = $true; '--projects-dir' = $true; '--target-gb' = $true }
+    'clean'        = @{ '--token' = $true; '--categories' = $true; '--empty-trash' = $false
         '--min-idle-days' = $true; '--log' = $false }
+    'review'       = @{ '--min-size-mb' = $true; '--downloads-age-days' = $true }
+    'review-apply' = @{ '--token' = $true }
 }
+$script:NO_TARGET = 0
+$script:TARGET_GB_FLOOR = 1
+$script:TARGET_GB_CEILING = 10000
+$script:TARGET_GB_PATTERN = '^[0-9]{1,5}$'
 
 function Read-FlagValue {
     param([string]$Command, [string[]]$Rest)
@@ -52,6 +58,14 @@ function ConvertTo-DayCount {
     return $value
 }
 
+function ConvertTo-BoundedNumber {
+    param([string]$Text, [string]$Pattern, [int]$Minimum, [int]$Maximum)
+    if ($Text -notmatch $Pattern) { Invoke-CleanupFailure -Code 'INVALID_ARGUMENT' }
+    $value = [int]$Text
+    if (($value -lt $Minimum) -or ($value -gt $Maximum)) { Invoke-CleanupFailure -Code 'INVALID_ARGUMENT' }
+    return $value
+}
+
 function Expand-HomeShortcut {
     param([string]$Path)
     if ($Path -eq $script:HOME_SHORTCUT) { return $env:USERPROFILE }
@@ -90,11 +104,17 @@ function ConvertTo-ScanOption {
         $projectsDir = Resolve-ProjectRoot -Path $Raw['--projects-dir']
         if ($null -eq $projectsDir) { Invoke-CleanupFailure -Code 'INVALID_ARGUMENT' }
     }
+    $targetGb = $script:NO_TARGET
+    if ($Raw.ContainsKey('--target-gb')) {
+        $targetGb = ConvertTo-BoundedNumber -Text $Raw['--target-gb'] -Pattern $script:TARGET_GB_PATTERN `
+            -Minimum $script:TARGET_GB_FLOOR -Maximum $script:TARGET_GB_CEILING
+    }
     return [pscustomobject]@{
         Command     = $script:COMMAND_SCAN
         Deep        = $Raw.ContainsKey('--deep')
         MinAgeDays  = $minAgeDays
         ProjectsDir = $projectsDir
+        TargetGb    = $targetGb
     }
 }
 
@@ -136,6 +156,35 @@ function ConvertTo-CleanOption {
     }
 }
 
+function ConvertTo-ReviewOption {
+    param($Raw)
+    $minSizeMb = $script:REVIEW_DEFAULT_MIN_SIZE_MB
+    if ($Raw.ContainsKey('--min-size-mb')) {
+        $minSizeMb = ConvertTo-BoundedNumber -Text $Raw['--min-size-mb'] -Pattern $script:REVIEW_SIZE_MB_PATTERN `
+            -Minimum $script:REVIEW_MIN_SIZE_MB_FLOOR -Maximum ([int]::MaxValue)
+    }
+    $downloadsAgeDays = $script:REVIEW_DEFAULT_DOWNLOADS_AGE_DAYS
+    if ($Raw.ContainsKey('--downloads-age-days')) {
+        $downloadsAgeDays = ConvertTo-DayCount -Text $Raw['--downloads-age-days'] `
+            -Minimum $script:REVIEW_DOWNLOADS_AGE_DAYS_FLOOR
+    }
+    return [pscustomobject]@{
+        Command          = $script:COMMAND_REVIEW
+        MinSizeMb        = $minSizeMb
+        DownloadsAgeDays = $downloadsAgeDays
+    }
+}
+
+function ConvertTo-ReviewApplyOption {
+    param($Raw)
+    if (-not $Raw.ContainsKey('--token')) { Invoke-CleanupFailure -Code 'TOKEN_MISSING' }
+    if ($Raw['--token'] -cnotmatch $script:TOKEN_PATTERN) { Invoke-CleanupFailure -Code 'TOKEN_INVALID' }
+    return [pscustomobject]@{
+        Command = $script:COMMAND_REVIEW_APPLY
+        Token   = [string]$Raw['--token']
+    }
+}
+
 function ConvertFrom-CliArgument {
     param([string[]]$Arguments)
     if (($null -eq $Arguments) -or ($Arguments.Count -eq 0)) { Invoke-CleanupFailure -Code 'USAGE' }
@@ -148,6 +197,12 @@ function ConvertFrom-CliArgument {
     }
     if ($first -ceq $script:COMMAND_CLEAN) {
         return (ConvertTo-CleanOption -Raw (Read-FlagValue -Command $first -Rest $rest))
+    }
+    if ($first -ceq $script:COMMAND_REVIEW) {
+        return (ConvertTo-ReviewOption -Raw (Read-FlagValue -Command $first -Rest $rest))
+    }
+    if ($first -ceq $script:COMMAND_REVIEW_APPLY) {
+        return (ConvertTo-ReviewApplyOption -Raw (Read-FlagValue -Command $first -Rest $rest))
     }
     Invoke-CleanupFailure -Code 'USAGE'
 }

@@ -4,7 +4,7 @@
 # Usage: install.sh [--agent NAME[,NAME...]] [--uninstall] [--local PATH] [--help]
 set -eu
 
-VERSION="v1.1.0"
+VERSION="v1.2.0"
 REPO="awankkaley/disk-cleanup"
 SKILL_NAME="disk-cleanup"
 # A command file is ours only when it carries this marker line.
@@ -12,7 +12,7 @@ COMMAND_MARKER="disk-cleanup-skill:managed-command"
 ARCHIVE_URL="https://github.com/${REPO}/archive/refs/tags/${VERSION}.tar.gz"
 KNOWN_AGENTS="claude codex cursor gemini copilot opencode amp goose agents"
 # One namespaced command per mode, next to the plain /disk-cleanup command.
-COMMAND_MODES="scan scan-only deep help"
+COMMAND_MODES="scan scan-only review deep help"
 EXIT_USAGE=2
 
 MODE="install"
@@ -42,7 +42,7 @@ and an existing folder of that name is only replaced or removed when it is this 
 
 Gemini CLI and OpenCode also get small command files that only start the skill:
 /${SKILL_NAME} plus one per mode in a "${SKILL_NAME}" subfolder (Gemini CLI shows
-them as /${SKILL_NAME}:scan, :scan-only, :deep, :help; OpenCode as /${SKILL_NAME}/scan
+them as /${SKILL_NAME}:scan, :scan-only, :review, :deep, :help; OpenCode as /${SKILL_NAME}/scan
 and so on), under ~/.gemini/commands/ and ~/.config/opencode/commands/. A file of
 the same name that this installer did not write is never replaced or removed.
 EOF

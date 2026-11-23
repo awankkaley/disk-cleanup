@@ -8,6 +8,7 @@ readonly CATEGORY_ROWS=(
   "app-caches|system|safe|dirs|-|Application caches|Apps rebuild their caches automatically and may start slower once."
   "temp-files|system|safe|aged|-|Temporary files|Only temporary files older than the age threshold are removed."
   "logs|system|safe|aged|-|Logs and crash reports|Old log files and diagnostic reports can no longer be consulted."
+  "ios-updates|system|safe|dirs|-|iPhone and iPad update files|Downloaded device software installers are downloaded again when a device needs an update."
   "trash|system|irreversible|dirs|-|Trash|Everything in the Trash is deleted permanently and cannot be restored."
   "browser-chrome|browser|safe|dirs|x:Google Chrome|Chrome cache|Pages may load slightly slower once while the cache rebuilds."
   "browser-edge|browser|safe|dirs|x:Microsoft Edge|Edge cache|Pages may load slightly slower once while the cache rebuilds."
@@ -44,9 +45,27 @@ readonly APP_CACHES_EXCLUDED_PREFIX="com.apple."
 readonly APP_CACHES_EXCLUDED_SYSTEM=("CloudKit" "FamilyCircle" "GeoServices" "PassKit" "GameKit")
 readonly CHROMIUM_CACHE_NAMES=("Cache" "Code Cache" "GPUCache")
 readonly SAFARI_CACHE_NAMES=("WebKitCache" "fsCachedData")
+readonly IOS_UPDATE_FOLDERS=("iPhone Software Updates" "iPad Software Updates" "iPod Software Updates")
+# Apps that keep caches next to their data in Application Support.
+# folder|cache folder names|app names   (lists are comma separated)
+# Only the named folders directly inside the app folder are ever touched.
+readonly KNOWN_APP_CACHE_ROWS=(
+  "Slack|Cache,Code Cache,GPUCache|Slack"
+  "discord|Cache,Code Cache,GPUCache|Discord"
+  "Microsoft/Teams|Cache,Code Cache,GPUCache|Microsoft Teams,Microsoft Teams classic"
+  "Spotify|PersistentCache|Spotify"
+  "zoom.us|Cache,Code Cache,GPUCache|zoom.us"
+  "WhatsApp|Cache,Code Cache,GPUCache|WhatsApp"
+  "Telegram Desktop|Cache,Code Cache,GPUCache|Telegram,Telegram Desktop,Telegram Lite"
+  "Code|Cache,Code Cache,GPUCache,CachedData|Visual Studio Code,Code"
+)
+readonly REBUILD_COST_NONE=1
+readonly REBUILD_COST_NEXT_USE=2
+readonly REBUILD_COST_LONG=3
 
 TARGETS=()
 TARGETS_DENIED=0
+SPLIT_ITEMS=()
 
 # shellcheck disable=SC2034 # CAT_* are read by the scan, clean and output files
 category_lookup() {
@@ -61,9 +80,24 @@ category_lookup() {
     CAT_PROCESS=${rest%%|*} rest=${rest#*|}
     CAT_LABEL=${rest%%|*}
     CAT_IMPACT=${rest#*|}
+    CAT_COST=$(category_rebuild_cost "$1")
     return 0
   done
   return 1
+}
+
+# 1 = nothing noticeable, 2 = re-downloads or rebuilds on next use,
+# 3 = long re-download or rebuild.
+category_rebuild_cost() {
+  case "$1" in
+    temp-files | logs | trash | browser-* | docker-dangling | homebrew-cache | xcode-simulators-unavailable)
+      printf '%s' "$REBUILD_COST_NONE"
+      ;;
+    gradle-cache | cargo-cache | xcode-derived-data | node-modules-stale)
+      printf '%s' "$REBUILD_COST_LONG"
+      ;;
+    *) printf '%s' "$REBUILD_COST_NEXT_USE" ;;
+  esac
 }
 
 list_contains() {
@@ -141,6 +175,44 @@ add_app_caches() {
   done < <(find -P "$root" -xdev -mindepth 1 -maxdepth 1 -type d -print0 2> /dev/null)
 }
 
+# Splits "a,b,c" into the SPLIT_ITEMS array.
+split_list() {
+  local rest=$1
+  SPLIT_ITEMS=()
+  while [ -n "$rest" ]; do
+    SPLIT_ITEMS+=("${rest%%,*}")
+    case "$rest" in *,*) rest=${rest#*,} ;; *) rest="" ;; esac
+  done
+}
+
+# True when one of the comma separated app names belongs to a running app.
+known_app_is_running() {
+  local name
+  split_list "$1"
+  for name in "${SPLIT_ITEMS[@]}"; do
+    cache_owner_is_running "$name" && return 0
+  done
+  return 1
+}
+
+add_known_app_caches() {
+  local row folder rest
+  load_running_apps
+  for row in "${KNOWN_APP_CACHE_ROWS[@]}"; do
+    folder=${row%%|*} rest=${row#*|}
+    known_app_is_running "${rest#*|}" && continue
+    split_list "${rest%%|*}"
+    add_named_dirs 1 1 "$LIBRARY/Application Support/$folder" "${SPLIT_ITEMS[@]}"
+  done
+}
+
+add_ios_updates() {
+  local folder
+  for folder in "${IOS_UPDATE_FOLDERS[@]}"; do
+    add_dir "$LIBRARY/iTunes/$folder"
+  done
+}
+
 add_stale_subdirs() {
   local base=$1 days=$2 found
   is_real_dir "$base" || return 0
@@ -156,7 +228,11 @@ resolve_targets() {
   TARGETS=()
   TARGETS_DENIED=0
   case "$1" in
-    app-caches) add_app_caches ;;
+    app-caches)
+      add_app_caches
+      add_known_app_caches
+      ;;
+    ios-updates) add_ios_updates ;;
     trash) add_dir "$HOME_PHYS/$TRASH_NAME" ;;
     browser-chrome) add_chromium "Google/Chrome" ;;
     browser-edge) add_chromium "Microsoft Edge" ;;

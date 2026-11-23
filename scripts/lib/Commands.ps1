@@ -1,4 +1,5 @@
 $script:MIN_PROFILE_SEGMENTS = 2
+$script:BYTES_PER_GIGABYTE = [long]1073741824
 
 function Get-PathSegmentCount {
     param([string]$Normalized)
@@ -80,6 +81,7 @@ function ConvertTo-ScanEntry {
         risk          = $Category['Risk']
         impact        = $Category['Impact']
         requires_flag = $Category['RequiresFlag']
+        rebuild_cost  = $Category['RebuildCost']
     }
     if ($null -ne $Measure.Buckets) { $entry['buckets'] = @($Measure.Buckets) }
     return $entry
@@ -97,6 +99,52 @@ function Get-RecommendedTotal {
     return $total
 }
 
+# Recommended categories with a known size, cheapest to rebuild first and largest
+# first within the same cost. The catalog position breaks ties, so the order is stable.
+function Get-SuggestionCandidateList {
+    param([object[]]$Entries)
+    $position = 0
+    $candidates = @(foreach ($entry in $Entries) {
+            $position += 1
+            if ($entry['status'] -ne 'ok') { continue }
+            if (-not $entry['recommended']) { continue }
+            if ($null -eq $entry['size_bytes']) { continue }
+            if ([long]$entry['size_bytes'] -le 0) { continue }
+            [pscustomobject]@{
+                Id       = [string]$entry['id']
+                Cost     = [int]$entry['rebuild_cost']
+                Bytes    = [long]$entry['size_bytes']
+                Position = $position
+            }
+        })
+    $order = @(
+        @{ Expression = 'Cost'; Descending = $false },
+        @{ Expression = 'Bytes'; Descending = $true },
+        @{ Expression = 'Position'; Descending = $false }
+    )
+    return @($candidates | Sort-Object -Property $order)
+}
+
+# A suggestion only names categories; it approves nothing. clean still needs the
+# token and an explicit category list.
+function Get-ScanSuggestion {
+    param([object[]]$Entries, [int]$TargetGb)
+    $targetBytes = [long]$TargetGb * $script:BYTES_PER_GIGABYTE
+    $ids = New-Object -TypeName 'System.Collections.Generic.List[string]'
+    $total = [long]0
+    foreach ($candidate in @(Get-SuggestionCandidateList -Entries $Entries)) {
+        if ($total -ge $targetBytes) { break }
+        $ids.Add($candidate.Id)
+        $total += $candidate.Bytes
+    }
+    return [ordered]@{
+        target_bytes   = $targetBytes
+        category_ids   = [string[]]@($ids.ToArray())
+        total_bytes    = $total
+        reaches_target = ($total -ge $targetBytes)
+    }
+}
+
 function Invoke-ScanCommand {
     param($Options)
     $context = Get-RunContext -MinAgeDays $Options.MinAgeDays -Deep $Options.Deep `
@@ -109,7 +157,7 @@ function Invoke-ScanCommand {
     $token = Get-FreshToken
     Save-ScanState -Token $token -Options $Options -OkIds $okIds
     $disk = Get-DiskInfo
-    return [ordered]@{
+    $document = [ordered]@{
         schema_version           = $script:SCHEMA_VERSION
         command                  = $script:COMMAND_SCAN
         platform                 = $script:PLATFORM_NAME
@@ -119,6 +167,10 @@ function Invoke-ScanCommand {
         recommended_total_bytes  = (Get-RecommendedTotal -Entries $entries)
         categories               = $entries
     }
+    if ($Options.TargetGb -ne $script:NO_TARGET) {
+        $document['suggestion'] = Get-ScanSuggestion -Entries $entries -TargetGb $Options.TargetGb
+    }
+    return $document
 }
 
 function Assert-CleanRequest {
@@ -213,7 +265,10 @@ function Get-CommandDocument {
     if ($Options.Command -eq 'help') { return (Get-HelpDocument) }
     if ($Options.Command -eq 'version') { return (Get-VersionDocument) }
     if ($Options.Command -eq $script:COMMAND_SCAN) { return (Invoke-ScanCommand -Options $Options) }
-    return (Invoke-CleanCommand -Options $Options)
+    if ($Options.Command -eq $script:COMMAND_CLEAN) { return (Invoke-CleanCommand -Options $Options) }
+    if ($Options.Command -eq $script:COMMAND_REVIEW) { return (Invoke-ReviewCommand -Options $Options) }
+    if ($Options.Command -eq $script:COMMAND_REVIEW_APPLY) { return (Invoke-ReviewApplyCommand -Options $Options) }
+    Invoke-CleanupFailure -Code 'INTERNAL'
 }
 
 # Runs one command line and returns the JSON document plus the process exit code.
@@ -223,7 +278,7 @@ function Invoke-Cleanup {
     try {
         if (-not (Test-SupportedPlatform)) { Invoke-CleanupFailure -Code 'UNSUPPORTED_PLATFORM' }
         $options = ConvertFrom-CliArgument -Arguments $Arguments
-        $needsHome = ($options.Command -eq $script:COMMAND_SCAN) -or ($options.Command -eq $script:COMMAND_CLEAN)
+        $needsHome = ($options.Command -ne 'help') -and ($options.Command -ne 'version')
         if ($needsHome -and (-not (Test-EnvironmentSane))) { Invoke-CleanupFailure -Code 'INTERNAL' }
         $document = Get-CommandDocument -Options $options
         $exitCode = $script:EXIT_OK

@@ -5,7 +5,7 @@ load helpers/common
 setup() { setup_sandbox; }
 teardown() { teardown_sandbox; }
 
-MAC_CATEGORIES="app-caches,temp-files,logs,trash,browser-chrome,browser-edge,browser-firefox,browser-brave,browser-opera,browser-arc,browser-safari,npm-cache,yarn-cache,pnpm-store,pip-cache,gradle-cache,cargo-cache,go-cache,docker-dangling,homebrew-cache,cocoapods-cache,xcode-derived-data,xcode-device-support,xcode-simulators-unavailable"
+MAC_CATEGORIES="app-caches,temp-files,logs,ios-updates,trash,browser-chrome,browser-edge,browser-firefox,browser-brave,browser-opera,browser-arc,browser-safari,npm-cache,yarn-cache,pnpm-store,pip-cache,gradle-cache,cargo-cache,go-cache,docker-dangling,homebrew-cache,cocoapods-cache,xcode-derived-data,xcode-device-support,xcode-simulators-unavailable"
 
 @test "scan prints one schema-valid JSON document" {
   make_chrome_profile

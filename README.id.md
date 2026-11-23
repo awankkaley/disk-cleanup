@@ -2,86 +2,461 @@
 
 [English](README.md) | **Bahasa Indonesia**
 
-Agent Skill yang membuat asisten AI kamu (Claude Code, Codex CLI, Cursor, Gemini CLI, dan lainnya) bisa
-mengosongkan ruang penyimpanan di macOS dan Windows tanpa pernah melihat file kamu.
+disk-cleanup membuat asisten AI di komputermu bisa melegakan penyimpanan Mac atau laptop Windows
+tanpa pernah melihat isi file kamu. Sampah peninggalan aplikasi dibersihkan, lalu kamu sendiri, dan
+hanya kamu, yang memilih file besar dan unduhan lama mana yang mau dibuang.
 
-Kamu cukup ketik `/disk-cleanup` atau bilang "laptop saya penuh". Asisten menjalankan satu skrip,
-menampilkan tabel berisi apa saja
-yang bisa dibersihkan beserta ukurannya, menanyakan mana yang kamu mau, lalu membersihkan yang kamu
-pilih saja.
+**Buat siapa:** siapa saja yang laptopnya sering muncul peringatan "penyimpanan hampir penuh". Tidak
+perlu bisa ngoding. Asal bisa ngobrol dengan aplikasi AI dan klik "Allow", kamu bisa pakai.
 
-## Apa yang dilakukan
+## Gambaran pemakaiannya
 
-- Mencari sampah yang aman dihapus: cache aplikasi, file sementara, log lama, cache browser, dan cache
-  peninggalan alat pengembang (npm, pip, Homebrew, Xcode, Docker, dan lain-lain).
-- Menampilkan ukuran tiap kategori sebelum ada yang dihapus. Tidak ada yang dihapus sebelum kamu memilih.
-- Kalau diminta, mencari folder `node_modules` di proyek yang sudah berbulan-bulan tidak disentuh.
-- Berjalan tanpa hak administrator dan tanpa perlu memasang apa pun.
+1. Kamu bilang ke aplikasi AI: "Laptop saya penuh, tolong bantu legakan."
+2. Aplikasinya minta izin menjalankan skrip pembersih. Kamu izinkan.
+3. Beberapa detik kemudian muncul daftar singkat, misalnya:
 
-Skill ini tidak mencari file besar, file duplikat, atau unduhan lama. Untuk itu nama file kamu harus
-dibaca, dan skill ini memang dirancang agar tidak pernah melakukannya.
+   > Sekitar 14 GB bisa dikosongkan dengan aman.
+   >
+   > | Apa | Ukuran | Efeknya buat kamu |
+   > | --- | --- | --- |
+   > | File sementara Chrome | 3,4 GB | Halaman web sedikit lebih lambat, sekali saja. |
+   > | File sementara aplikasi | 6,1 GB | Dibuat ulang sendiri oleh aplikasinya. |
+   > | Installer update iPhone lama | 4,7 GB | Diunduh lagi kalau suatu saat perlu. |
+   >
+   > Mau saya bersihkan?
+
+4. Kamu jawab "ya", atau "semua kecuali Chrome". Yang dibersihkan hanya yang kamu pilih.
+5. Masih kurang lega? Minta tinjau file besar. Sebuah halaman terbuka di browsermu sendiri, isinya
+   file-file terbesar dan unduhan lama. Centang yang boleh dibuang, tekan "Save selection", lalu
+   file-file itu dipindahkan ke Tempat Sampah (Trash). AI tidak pernah melihat halaman itu.
+
+Tidak ada yang dibersihkan sebelum kamu melihat daftarnya dan bilang ya.
+
+## Aplikasi apa yang saya butuhkan?
+
+Skill ini menjalankan sebuah skrip kecil **di komputermu sendiri**. Jadi hanya bisa dipakai di
+aplikasi AI yang memang bisa melakukan itu. Situs chat dan aplikasi di HP tidak bisa: kode mereka
+jalan di server perusahaannya, dan dari sana disk kamu tidak kelihatan.
+
+| Aplikasi | Bisa? | Catatan |
+| --- | --- | --- |
+| **Aplikasi desktop Claude, tab Code** (Mac, Windows) | **Bisa** | Pilihan paling gampang. Perlu paket Claude berbayar (Pro ke atas). Pakai sesi "Local". |
+| **Aplikasi desktop ChatGPT** (yang di dalamnya ada Codex; Mac, Windows) | **Bisa** | Menjalankan perintah di komputermu, dengan batasan: dia akan minta persetujuan dulu karena file yang dibersihkan ada di luar folder proyek. |
+| **Cursor** (Mac, Windows) | **Bisa** | Editor kode yang punya agen AI. Ada paket gratis dengan pemakaian terbatas. |
+| Claude Code, Codex CLI, GitHub Copilot CLI, Gemini CLI, OpenCode | Bisa | Alat berbasis terminal untuk developer. Lihat [Untuk developer](#untuk-developer). |
+| Aplikasi desktop Claude, tab **Chat**; situs claude.ai; aplikasi Claude di HP | **Tidak** | Skill dijalankan di sandbox milik Anthropic, yang tidak bisa menjangkau disk kamu. |
+| Aplikasi desktop Claude, **Cowork** | **Tidak** | Bekerja di lingkungan terisolasi dan hanya melihat folder yang kamu hubungkan, bukan tempat sampah-sampah itu berada. |
+| Situs chatgpt.com; aplikasi ChatGPT di HP | **Tidak** | Tugas di cloud berjalan tanpa akses ke file di komputermu. |
+| Aplikasi dan situs Gemini | **Tidak** | Kami tidak menemukan cara resmi untuk menjalankan skrip di komputermu dari sana. |
+
+Tabel ini mengikuti dokumentasi resmi tiap perusahaan per November 2026 (tautannya ada di
+[bagian paling bawah](#sumber-tabel-aplikasi)). Aplikasi AI cepat sekali berubah; kalau aplikasimu
+bisa menjalankan perintah di komputermu dan mendukung "Agent Skills", semestinya bisa.
+
+Yang didukung hanya macOS dan Windows. Linux, HP, dan tablet tidak.
+
+## Cara memasang
+
+Setelah terpasang, mulai obrolan baru (atau tutup lalu buka lagi aplikasinya) supaya skill-nya terbaca.
+
+### Aplikasi desktop Claude (disarankan)
+
+Kamu perlu aplikasi desktop Claude ([tautan unduhnya](https://code.claude.com/docs/en/desktop-quickstart))
+dan paket Claude berbayar.
+
+**Cara 1: unggah satu file, tanpa Terminal**
+
+1. Unduh [`disk-cleanup.zip`](https://github.com/awankkaley/disk-cleanup/releases/download/v1.2.0/disk-cleanup.zip).
+   Jangan diekstrak.
+2. Di aplikasi desktop Claude, buka **Customize**, lalu **Skills**.
+3. Klik tombol **+** untuk mengunggah skill, lalu pilih `disk-cleanup.zip` tadi. Kalau Claude meminta
+   kamu menyalakan "Code execution and file creation", nyalakan di Settings > Capabilities.
+4. Cari **disk-cleanup** di daftar, lalu aktifkan.
+5. Klik tab **Code** di bagian atas sidebar. Di bawah kotak pesan, klik pilihan paling kiri dan pilih
+   entri teratas di kelompok **Local**. Setelah itu pilih **Open folder…** dan pilih folder mana
+   saja, misalnya folder kosong yang baru kamu buat. Folder itu tidak dipakai untuk bersih-bersih;
+   aplikasinya saja yang butuh satu folder.
+6. Ketik: `Laptop saya hampir penuh, tolong bantu legakan.`
+
+Pakainya di tab **Code**, bukan Chat atau Cowork. Skill-nya memang ikut muncul di sana, tapi dari
+tab-tab itu disk kamu tidak terjangkau, dan skill-nya akan bilang begitu.
+
+**Cara 2: tempel satu baris**
+
+1. Buka Terminal (Mac: tekan Command+Spasi, ketik `Terminal`, tekan Enter) atau PowerShell (Windows:
+   klik Start, ketik `PowerShell`, tekan Enter).
+2. Salin baris yang sesuai komputermu, tempel di jendela tadi, lalu tekan Enter.
+
+   Mac:
+
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.2.0/install.sh | bash -s -- --agent claude
+   ```
+
+   Windows:
+
+   ```powershell
+   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.2.0/install.ps1))) -Agent claude
+   ```
+
+3. Kalau sudah muncul tulisan "Done", tutup jendelanya, buka ulang aplikasi Claude, lalu lanjut dari
+   langkah 5 di atas.
+
+Installer ini hanya menyalin skill ke folder skills milik Claude. Tidak ada yang dibersihkan, dan
+kamu tidak akan dimintai kata sandi.
+
+### Aplikasi desktop ChatGPT (Codex)
+
+1. Buka Terminal atau PowerShell seperti dijelaskan di atas.
+2. Tempel baris yang sesuai komputermu, lalu tekan Enter.
+
+   Mac:
+
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.2.0/install.sh | bash -s -- --agent codex
+   ```
+
+   Windows:
+
+   ```powershell
+   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.2.0/install.ps1))) -Agent codex
+   ```
+
+3. Buka ulang aplikasinya. Di obrolan lokal (local chat), ketik `@` lalu pilih **disk-cleanup**, atau
+   langsung saja bilang: "Laptop saya penuh, tolong bantu legakan."
+4. Saat aplikasinya minta persetujuan untuk menjalankan skrip pembersih, setujui. Skrip ini bekerja di
+   luar folder proyek, makanya dengan pengaturan bawaan aplikasinya akan bertanya dulu.
+
+### Cursor
+
+Langkahnya sama seperti ChatGPT, hanya `codex` di ujung baris diganti `cursor`. Setelah itu buka
+Agent chat di Cursor, ketik `/`, lalu pilih **disk-cleanup**.
+
+### Lebih dari satu aplikasi, atau aplikasi lain
+
+Buang bagian paling belakang, dan installer akan memasang skill ini ke semua aplikasi AI yang
+didukung dan ditemukan di komputermu:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.2.0/install.sh | bash
+```
+
+```powershell
+irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.2.0/install.ps1 | iex
+```
+
+Untuk developer: `npx skills add`, plugin Claude Code, dan salin manual ada di
+[Cara pasang lainnya](#cara-pasang-lainnya).
+
+## Cara memakai
+
+### Cukup minta saja
+
+Tidak ada perintah yang perlu dihafal. Buka aplikasi AI-mu dan tulis saja maumu, pakai bahasa
+sehari-hari:
+
+- "Laptop saya hampir penuh. Tolong bantu legakan."
+- "Kosongkan 10 GB."
+- "Kira-kira bisa lega berapa GB? Jangan hapus apa-apa dulu."
+- "Tampilkan file-file terbesar dan unduhan lama saya, biar saya pilih sendiri yang mau dibuang."
+- "Sekalian kosongkan Tempat Sampah."
+
+Asisten akan minta izin menjalankan skrip pembersih. Itu wajar, izinkan saja. Untuk bersih-bersih
+ini seharusnya tidak ada perintah lain yang perlu dijalankan, jadi waspadalah kalau dia meminta
+yang lain.
+
+### Atau ketik perintah
+
+Ketik `/disk-cleanup`, boleh ditambah satu kata di belakangnya:
+
+| Kamu ketik | Yang terjadi |
+| --- | --- |
+| `/disk-cleanup` | Memeriksa apa saja yang bisa dibersihkan, menampilkan daftar beserta ukurannya, lalu bertanya mana yang mau dibersihkan. |
+| `/disk-cleanup 10gb` | Sama, tapi langsung diusulkan pilihan paling hemat yang cukup untuk melegakan sebanyak itu. Tetap bertanya dulu. |
+| `/disk-cleanup scan-only` | Menampilkan daftar dan totalnya, lalu selesai. Tidak ada yang dibersihkan. |
+| `/disk-cleanup review` | Membuka halaman pribadi di browsermu berisi file besar dan unduhan lama, supaya kamu bisa memilih mana yang dipindahkan ke Tempat Sampah. Lihat bagian berikutnya. |
+| `/disk-cleanup deep` | Untuk developer: sekalian mencari folder `node_modules` lama di proyek yang sudah berbulan-bulan tidak disentuh. |
+| `/disk-cleanup help` | Menjelaskan pilihan-pilihan ini. Tidak menjalankan apa pun. |
+
+Di aplikasi desktop ChatGPT tidak ada perintah garis miring: ketik `@`, pilih disk-cleanup, lalu
+tambahkan katanya di belakang (atau minta saja dengan bahasa biasa). Di aplikasi lain ada sedikit
+perbedaan; lihat [Perintah di tiap aplikasi](#perintah-di-tiap-aplikasi).
+
+Memang sengaja tidak ada pilihan untuk langsung membersihkan. `/disk-cleanup clean all` pun tetap
+memeriksa dulu, menampilkan daftar, lalu menunggu pilihanmu.
+
+## Review: file besar dan unduhan lama
+
+Yang bikin laptop penuh biasanya bukan file sementara, melainkan beberapa video besar, installer
+lama, dan folder Downloads yang bertahun-tahun tidak pernah ditengok. Mana yang boleh dibuang, cuma
+kamu yang tahu. Karena itu bagian ini dikerjakan kamu sendiri, bukan AI.
+
+1. Minta "tampilkan file terbesar dan unduhan lama saya", atau ketik `/disk-cleanup review`.
+2. Sebuah halaman terbuka di browsermu. Isinya file berukuran 100 MB ke atas di seluruh folder home
+   kamu, dan file di Downloads yang sudah 90 hari atau lebih tidak berubah, lengkap dengan nama,
+   folder, ukuran, dan tanggal. Bisa diurutkan menurut ukuran dan disaring per kelompok.
+3. Centang yang sudah tidak kamu perlukan. Totalnya langsung terlihat ("dipilih: 12 item, 8,4 GB").
+4. Tekan tombol **Save selection** (kalau browsermu berbahasa Indonesia, halamannya ikut berbahasa
+   Indonesia). Browser akan menyimpan file kecil bernama `disk-cleanup-selection.json` ke folder
+   Downloads. Biarkan saja di situ.
+5. Kembali ke aplikasi AI dan bilang "sudah".
+6. File yang kamu centang dipindahkan ke Tempat Sampah (Trash di macOS, Recycle Bin di Windows).
+   Asisten memberi tahu berapa file dan berapa besar totalnya.
+
+Yang perlu kamu tahu:
+
+- **AI tidak bisa melihat halaman itu.** Halamannya berupa file di komputermu sendiri yang dibuka
+  langsung oleh browser. Tidak dikirim ke AI atau ke mana pun, dan halaman itu tidak memuat apa-apa
+  dari internet. Yang disampaikan ke asisten hanya jumlah item yang ditemukan dan total ukurannya,
+  lalu setelahnya berapa yang dipindahkan. File pilihan yang tersimpan hanya berisi sebuah kode dan
+  nomor-nomor item, tanpa nama file.
+- **Tidak ada yang terhapus dari halaman itu.** Mencentang dan menyimpan belum mengubah apa-apa.
+  File baru dipindahkan setelah kamu bilang "sudah" di obrolan.
+- **File masih bisa dikembalikan.** Semuanya ada di Tempat Sampah atau Recycle Bin. Di Mac, buka
+  Trash lalu seret filenya keluar, atau klik kanan dan pilih "Put Back" kalau macOS menyediakannya.
+  Di Windows, buka Recycle Bin, klik kanan filenya, pilih "Restore".
+- **Ruang baru benar-benar lega setelah Tempat Sampah dikosongkan.** Kosongkan sendiri, atau minta
+  asisten ("sekalian kosongkan Tempat Sampah"). Mengosongkannya permanen dan berlaku untuk semua isi
+  Tempat Sampah.
+- **Hati-hati dengan folder cloud.** Kalau filenya ada di folder yang disinkronkan dengan iCloud
+  Drive, OneDrive, Dropbox, atau Google Drive, memindahkannya ke Tempat Sampah juga menghapusnya dari
+  cloud dan dari perangkatmu yang lain. File yang hanya ada di cloud (belum diunduh ke komputer ini)
+  tidak ditampilkan, karena membuangnya tidak menambah ruang di sini.
+- **File yang berubah tidak disentuh.** Kalau sebuah file diubah, dipindah, atau diganti setelah
+  halamannya dibuat, file itu dilewati.
+- **Halamannya berlaku satu jam** dan hanya untuk sekali pakai. Lewat dari itu, minta review baru.
+- **Yang tidak pernah ditampilkan:** apa pun di dalam aplikasi, folder sistem `Library` atau
+  `AppData`, folder tersembunyi, dan library yang oleh macOS ditampilkan sebagai satu item, misalnya
+  library Photos.
+
+### macOS akan meminta izin
+
+Saat pertama kali, macOS bisa memunculkan pesan seperti **"Claude" would like to access files in your
+Downloads folder** (namanya mengikuti aplikasi tempat asistenmu berjalan), begitu juga untuk
+Documents dan Desktop.
+
+- Klik **Allow** kalau folder itu mau ikut ditinjau.
+- Klik **Don't Allow** kalau tidak. Review tetap jalan untuk folder lainnya.
+- Mau mengubah jawabanmu nanti: System Settings > Privacy & Security > Files and Folders.
+
+Kalau halamannya tidak terbuka sendiri, asisten akan memberi tahu lokasinya supaya bisa kamu buka
+sendiri: `~/Library/Application Support/disk-cleanup/review.html` di macOS (di Finder: Go > Go to
+Folder, lalu tempel bagian foldernya), atau `%LOCALAPPDATA%\disk-cleanup\review.html` di Windows
+(tempel di kolom alamat File Explorer).
 
 ## Jaminan privasi
 
-Ada dua jenis jaminan di sini, dan kekuatannya tidak sama. Mohon baca keduanya.
+Ada dua jenis jaminan di sini, dan kekuatannya tidak sama. Mohon baca dua-duanya.
 
-### Dipaksakan oleh skrip
+### Dijamin oleh skripnya
 
 Ini berlaku apa pun yang dilakukan AI, karena skripnya memang ditulis begitu dan diperiksa oleh tes.
 
-- **AI hanya menerima angka total.** Skrip mencetak satu dokumen JSON berisi nama kategori, ukuran,
-  jumlah, dan status. Skrip tidak pernah mencetak nama file, nama folder, path, nama pengguna, nama
-  komputer, atau nama proyek. Pesan error berupa teks tetap, tanpa sisipan apa pun.
-- **Daftar lokasi yang tetap.** Skrip hanya bisa membersihkan kategori yang tercantum di bawah. Tidak
-  ada mode "bersihkan semuanya" dan tidak ada cara menyuruhnya menghapus folder tertentu.
-- **Penghapusan berpengaman.** Setiap penghapusan lewat satu rutin yang menolak apa pun di luar folder
-  home kamu, apa pun yang terlalu dekat dengan pangkal folder itu, folder yang di dalamnya ada folder
-  terlindungi, dan semua symbolic link. Link tidak pernah diikuti.
-- **Alat pengembang ditanya dulu.** Sebelum perintah pembersih bawaan sebuah alat (npm, Yarn, pnpm,
-  pip, Go, Homebrew) dijalankan, skrip menanyakan dulu ke alat itu di mana cache-nya. Kalau lokasinya
-  bukan lokasi standar, misalnya karena ada pengaturan yang mengarahkannya ke Documents, kategori itu
-  dilaporkan tidak tersedia dan tidak ada yang dijalankan atau dihapus.
+- **Skrip hanya mencetak angka total.** Semua yang diserahkan skrip ke AI berupa satu dokumen JSON
+  berisi nama kategori, ukuran, jumlah, dan status. Skrip tidak pernah mencetak nama file, nama
+  folder, path, nama pengguna, nama komputer, atau nama proyek. Pesan error berupa teks tetap, tanpa
+  sisipan apa pun. Ini berlaku juga untuk review: AI hanya mendapat jumlah item dan ukurannya.
+- **Lokasi yang dibersihkan sudah ditentukan.** Pembersih hanya bisa membersihkan kategori yang
+  tercantum di bawah. Tidak ada mode "bersihkan semuanya" dan tidak ada cara menyuruhnya menghapus
+  folder tertentu.
+- **File pribadi hanya lewat centanganmu sendiri, dan hanya ke Tempat Sampah.** Sebuah file pribadi
+  baru dipindahkan kalau kamu mencentangnya di halaman review, filenya masih sama (ukuran dan
+  tanggalnya tidak berubah), dan letaknya di dalam folder home kamu di luar lokasi yang dilindungi.
+  File itu dipindahkan ke Tempat Sampah atau Recycle Bin, tidak pernah dihapus permanen, apa pun
+  yang terjadi.
+- **Penghapusan berpengaman.** Setiap penghapusan permanen lewat satu rutin yang menolak apa pun di
+  luar folder home kamu, apa pun yang terlalu dekat dengan pangkal folder itu, folder yang di
+  dalamnya ada folder terlindungi, dan semua symbolic link. Link tidak pernah diikuti.
+- **Alat developer ditanya dulu.** Sebelum perintah pembersih bawaan sebuah alat (npm, Yarn, pnpm,
+  pip, Go, Homebrew) dijalankan, skrip menanyakan dulu ke alat itu di mana cache-nya. Kalau bukan di
+  lokasi standar, kategori itu dilaporkan tidak tersedia dan tidak ada yang dijalankan atau dihapus.
 - **Folder home tidak bisa ditukar.** Di macOS skrip mencari sendiri folder home asli akunmu dan
   menolak jalan kalau `HOME` menunjuk ke folder di dalamnya.
-- **Pindai dulu, baru bersihkan.** `clean` hanya bisa jalan dengan token dari pemindaian dalam 15
-  menit terakhir, hanya untuk kategori yang dilaporkan pemindaian itu, dan tokennya hanya berlaku
-  sekali. Tempat sampah baru dikosongkan kalau ada flag tambahan yang eksplisit.
+- **Periksa dulu, baru bersihkan.** Pembersihan hanya bisa jalan dengan kode dari pemeriksaan dalam
+  15 menit terakhir, hanya untuk kategori yang dilaporkan pemeriksaan itu, dan kodenya hanya berlaku
+  sekali. Tempat Sampah baru dikosongkan kalau ada flag tambahan yang eksplisit. Review punya kode
+  sendiri yang berlaku satu jam dan sekali pakai.
 - **Tanpa sudo, tanpa hak administrator.** Skrip tidak pernah menaikkan hak akses, tidak pernah
-  menutup aplikasi kamu, dan tidak pernah mengubah izin. Kalau sebuah aplikasi sedang terbuka,
-  cache-nya dilewati.
-- **Tanpa jaringan.** Skrip tidak mengirim apa pun ke mana pun. (Beberapa perintah bawaan alat
-  pengembang ikut dipanggil, misalnya `npm cache clean`; semuanya bekerja secara lokal.)
+  menutup aplikasimu, dan tidak pernah mengubah izin. Kalau sebuah aplikasi sedang terbuka, file
+  sementaranya dilewati.
+- **Tanpa jaringan.** Skrip tidak mengirim apa pun ke mana pun, dan halaman review tidak memuat
+  apa-apa dari internet. (Beberapa perintah bawaan alat developer ikut dipanggil, misalnya
+  `npm cache clean`; semuanya bekerja secara lokal.)
 
 ### Instruksi untuk AI, tidak bisa dipaksakan secara teknis
 
 Skill ini memerintahkan AI untuk mematuhi aturan berikut. Asisten yang baik akan patuh, tetapi skrip
-tidak bisa mencegah asisten yang punya akses penuh ke terminal kamu melakukan hal lain. Pengaman yang
-sebenarnya adalah permintaan izin dari agent kamu sendiri: izinkan skrip cleanup, dan curigai perintah
-lain yang muncul selama proses pembersihan.
+tidak bisa mencegah asisten yang punya akses luas ke komputermu melakukan hal lain. Pengaman yang
+sebenarnya adalah permintaan izin dari aplikasi AI-mu sendiri: izinkan skrip pembersih, dan curigai
+perintah lain yang muncul selama bersih-bersih.
 
 - AI tidak boleh menjelajahi disk kamu sendiri (`ls`, `find`, `du`, `Get-ChildItem`, dan sejenisnya).
+- AI tidak boleh membuka halaman review, daftar di baliknya, maupun pilihan yang kamu simpan.
+- AI tidak boleh memintamu menempelkan nama file, dan tidak boleh memilihkan file untukmu.
 - AI tidak boleh membaca log penghapusan (yang opsional) maupun folder state milik skrip.
 - AI tidak boleh menghapus apa pun sendiri atau membersihkan kategori yang tidak kamu setujui.
 
-### Catatan soal `--deep`
+### File yang memang berisi nama file kamu
 
-Pemindaian biasa hanya melihat ke dalam lokasi cache yang sudah dikenal. Pemindaian mendalam (deep
-scan) berbeda: untuk menemukan folder `node_modules` lama, skrip menelusuri folder home kamu (atau
-folder proyek yang kamu sebutkan), termasuk Documents dan Desktop. Yang dibaca hanya struktur folder
-dan tanggal modifikasi, bukan isi file, dan tidak ada yang diubah. Nama-nama yang terlihat tetap berada
-di dalam skrip; AI tetap hanya menerima jumlah dan ukuran. Deep scan hanya berjalan kalau kamu memintanya.
+Supaya jelas: selama sebuah review masih terbuka, ada dua file di disk kamu yang memuat nama dan
+lokasi file-file yang ditampilkan, yaitu halamannya sendiri (`review.html`) dan daftar di baliknya.
+Keduanya disimpan di folder state milik skrip, hanya bisa dibaca oleh akun penggunamu sendiri, dan
+dihapus begitu pilihanmu dijalankan. AI diperintahkan untuk tidak membacanya, tetapi **secara teknis
+tidak dicegah**, karena asisten berjalan atas nama kamu. Kalau kamu memulai review lalu tidak
+menyelesaikannya, dua file itu tetap ada sampai tertimpa review berikutnya atau sampai folder
+state-nya kamu hapus (lihat [Cara menghapus skill](#cara-menghapus-skill)).
 
-### Log opsional
+Log penghapusan yang opsional juga begitu: kalau kamu minta catatan tentang apa saja yang
+dibersihkan, skrip menulis file log di komputermu sendiri (`--log`, bawaannya mati). File itu berisi
+path. AI hanya diberi tahu bahwa log itu ada dan di folder mana, bukan isinya.
 
-Kalau kamu ingin catatan tentang apa saja yang dihapus, skrip bisa menulis file log di komputermu
-sendiri (`--log`, bawaannya mati). File itu memang berisi path. AI hanya diberi tahu bahwa log itu ada
-dan di folder mana, bukan isinya.
+### Deep scan dan review menelusuri folder home
 
-## Cara memasang
+Pemeriksaan biasa hanya melihat ke lokasi file sementara yang sudah dikenal. Ada dua mode opsional
+yang melihat lebih jauh, dan hanya kalau kamu minta: review, dan deep scan untuk mencari
+`node_modules` lama (buat developer). Dua-duanya menelusuri folder home kamu, termasuk Documents dan
+Desktop. Yang dibaca hanya nama, ukuran, dan tanggal, bukan isi file, dan tidak ada yang diubah. Apa
+yang terlihat tetap tinggal di dalam skrip (dan, untuk review, di halaman yang hanya kamu buka).
 
-Pilih salah satu dari empat cara. Setelah terpasang, mulai ulang agent AI kamu.
+## Apa saja yang dibersihkan
 
-### 1. Dengan skills CLI
+**Aman dibersihkan** (akan dibuat ulang sendiri oleh aplikasinya):
+
+- File sementara aplikasi, termasuk aplikasi chat dan media seperti Slack, Discord, Microsoft Teams,
+  Spotify, Zoom, WhatsApp, dan Telegram. Hanya file sementaranya: pesan, pengaturan, dan unduhan
+  tidak disentuh.
+- File sementara browser: Chrome, Edge, Firefox, Brave, Opera, Arc, dan Safari. Hanya cache-nya,
+  jadi kamu tidak akan ter-logout dari mana pun.
+- File sementara dan log lama yang umurnya lebih dari 7 hari.
+- Di Mac: installer update iPhone dan iPad yang pernah diunduh. Cadangan (backup) perangkatmu tidak
+  disentuh.
+- Di Windows: crash dump, cache thumbnail, dan file sementara aplikasi Microsoft Store.
+- Unduhan dan sisa build alat developer (npm, pip, Homebrew, Xcode, Docker, dan lain-lain), hanya
+  ditampilkan kalau memang ada di komputermu.
+
+Yang dibersihkan di sini dihapus permanen, tidak dipindahkan ke Tempat Sampah. Itu sebabnya bagian
+ini hanya mencakup hal-hal yang akan muncul lagi dengan sendirinya.
+
+**Hanya kalau kamu minta:**
+
+- Tempat Sampah / Recycle Bin: baru dikosongkan kalau kamu memintanya secara tegas.
+- File besar dan unduhan lama milikmu: hanya yang kamu centang di halaman review, dan itu pun hanya
+  dipindahkan ke Tempat Sampah.
+- Folder `node_modules` lama (developer, deep scan).
+
+Daftar lengkap beserta id-nya ada di [Kategori](#kategori).
+
+### Yang tidak pernah disentuh
+
+- File pribadimu di Documents, Desktop, Downloads, Pictures, Movies, Music, dan folder cloud drive
+  (iCloud, OneDrive, Dropbox, Google Drive), dengan satu pengecualian: file yang **kamu centang
+  sendiri** di halaman review, dan itu pun hanya dipindahkan ke Tempat Sampah.
+- Cookie, riwayat, kata sandi tersimpan, sesi, bookmark, dan ekstensi browser.
+- Pesan chat, pengaturan aplikasi, library foto, cadangan perangkat.
+- Xcode Archives, volume Docker dan image yang bertag, cache modul Go.
+- Apa pun yang butuh hak administrator.
+- File sementara aplikasi yang sedang terbuka.
+
+## Pertanyaan umum
+
+**Aman, nggak?**
+Yang direkomendasikan adalah file sementara yang akan dibuat ulang sendiri oleh aplikasinya.
+Paling-paling sebuah aplikasi terasa lebih lambat saat pertama dibuka lagi. Yang lebih berisiko
+diberi tanda dan tidak pernah dipilih otomatis. File milikmu sendiri hanya disentuh kalau kamu yang
+mencentangnya.
+
+**Bisa dibatalkan?**
+File sementara: tidak, karena langsung dihapus. Makanya yang disasar hanya hal-hal yang bisa
+terbentuk lagi. File dari review: bisa, selama Tempat Sampah atau Recycle Bin belum dikosongkan.
+
+**Apakah AI bisa melihat nama file saya?**
+Lewat skill ini, tidak. Skrip hanya melaporkan angka total, dan halaman review dibuka oleh
+browsermu, bukan oleh AI. Skill ini juga memerintahkan AI agar tidak melihat-lihat sendiri dan tidak
+membuka file review, tetapi bagian itu sifatnya instruksi, bukan gembok. Lihat
+[Jaminan privasi](#jaminan-privasi).
+
+**Saya sudah tekan "Save selection" dan bilang "sudah", tapi asisten bilang pilihannya tidak ketemu.**
+Browsermu menyimpan filenya di tempat selain Downloads, atau sempat bertanya mau disimpan di mana
+lalu kamu batalkan. Tekan "Save selection" sekali lagi dan simpan di folder Downloads dengan nama
+yang disarankan.
+
+**Sudah buang file lewat review, kok ruang kosongnya tidak bertambah?**
+Filenya masih di Tempat Sampah. Ruangnya baru kembali setelah Tempat Sampah dikosongkan.
+
+**Kenapa ada yang dilewati?**
+Biasanya karena aplikasinya sedang terbuka (tutup dulu, lalu minta lagi), karena macOS menolak
+akses, atau karena sebuah alat developer menyimpan filenya di lokasi tidak standar, yang tidak akan
+disentuh skrip.
+
+**Hasilnya lebih sedikit dari yang dijanjikan.**
+Sebagian file sedang dipakai atau dilindungi sehingga tidak bisa dihapus. Aplikasi juga langsung
+mengisi lagi file sementaranya.
+
+**Apakah saya akan ter-logout dari situs web?**
+Tidak. Cookie, sesi, dan kata sandi tersimpan tidak disentuh.
+
+**Bisa cari file duplikat atau merapikan foto?**
+Tidak. Untuk itu AI harus membaca nama file kamu. Review menampilkan file besar dan unduhan lama,
+dan kamu yang memutuskan.
+
+**Bisa dipakai di Linux, HP, atau tablet?**
+Tidak. Hanya komputer macOS dan Windows.
+
+## Cara menghapus skill
+
+- Diunggah ke aplikasi desktop Claude: buka Customize > Skills, buka disk-cleanup, lalu matikan atau
+  hapus dari sana.
+- Plugin Claude Code: `claude plugin uninstall disk-cleanup@awankkaley-disk-cleanup`, lalu
+  `claude plugin marketplace remove awankkaley-disk-cleanup`.
+- Dipasang lewat installer satu baris:
+
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.2.0/install.sh | bash -s -- --uninstall
+  ```
+
+  ```powershell
+  & ([scriptblock]::Create((irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.2.0/install.ps1))) -Uninstall
+  ```
+
+- Dipasang lewat skills CLI: `npx skills remove disk-cleanup -g`.
+- Disalin manual: hapus folder `disk-cleanup` dari folder skills agent kamu.
+
+Installer hanya mau menimpa atau menghapus folder `disk-cleanup` yang memang skill ini (`SKILL.md`-nya
+berisi `name: disk-cleanup`), dan hanya file perintah yang memuat baris penandanya sendiri. Apa pun
+yang lain dengan nama yang sama tidak disentuh.
+
+Skrip menyimpan satu folder state kecil (kode terakhir, review yang belum selesai, dan log yang pernah
+kamu minta). Folder itu boleh dihapus: `~/Library/Application Support/disk-cleanup` di macOS,
+`%LOCALAPPDATA%\disk-cleanup` di Windows.
+
+---
+
+# Untuk developer
+
+## Perintah di tiap aplikasi
+
+| Agent | Pindai, lalu pilih | Laporan saja | Review file | Deep scan |
+| --- | --- | --- | --- | --- |
+| Claude Code, plugin | `/disk-cleanup:scan` | `/disk-cleanup:scan-only` | `/disk-cleanup:review` | `/disk-cleanup:deep` |
+| Claude desktop (tab Code) dan Claude Code, skill | `/disk-cleanup` | `/disk-cleanup scan-only` | `/disk-cleanup review` | `/disk-cleanup deep` |
+| Aplikasi desktop ChatGPT (Codex) | `@`, pilih disk-cleanup | tambah `scan-only` | tambah `review` | tambah `deep` |
+| Codex CLI | `$disk-cleanup` | `$disk-cleanup scan-only` | `$disk-cleanup review` | `$disk-cleanup deep` |
+| Cursor | `/disk-cleanup` | `/disk-cleanup scan-only` | `/disk-cleanup review` | `/disk-cleanup deep` |
+| GitHub Copilot CLI | `/disk-cleanup` | `/disk-cleanup scan-only` | `/disk-cleanup review` | `/disk-cleanup deep` |
+| Gemini CLI ¹ | `/disk-cleanup:scan` | `/disk-cleanup:scan-only` | `/disk-cleanup:review` | `/disk-cleanup:deep` |
+| OpenCode ¹ | `/disk-cleanup/scan` | `/disk-cleanup/scan-only` | `/disk-cleanup/review` | `/disk-cleanup/deep` |
+| Goose, Amp | minta dengan bahasa biasa | minta laporan saja | minta review file besar | minta deep scan |
+
+¹ Butuh file perintah yang ditambahkan installer satu baris. Di dalamnya juga ada `/disk-cleanup` polos
+yang menerima kata tambahan seperti skill biasa, dan perintah `help`. Tanpa file itu, minta saja
+dengan bahasa sehari-hari; cara kerja skill-nya sama.
+
+Plugin juga punya `/disk-cleanup:help`. Ukuran bisa ditulis di belakang perintah scan mana pun:
+`/disk-cleanup 10gb`, `/disk-cleanup:scan 10gb`.
+
+## Cara pasang lainnya
+
+### skills CLI
 
 Butuh Node.js.
 
@@ -89,58 +464,57 @@ Butuh Node.js.
 npx skills add awankkaley/disk-cleanup -g
 ```
 
-`-g` memasangnya untuk akun kamu sehingga bisa dipakai di semua proyek. Tambahkan `-a claude-code`
-(atau `codex`, `cursor`, `gemini-cli`, ...) untuk memilih agent, atau biarkan CLI yang bertanya.
+`-g` memasangnya untuk akun kamu. Tambahkan `-a claude-code` (atau `codex`, `cursor`, `gemini-cli`, ...)
+untuk memilih agent, atau biarkan CLI yang bertanya. Yang terpasang skill-nya saja; file perintah
+`/disk-cleanup` untuk Gemini CLI dan OpenCode hanya ikut lewat installer satu baris.
 
-Skills CLI memasang skill-nya saja, dan itu sudah cukup untuk kebanyakan agent. Satu-satunya yang tidak
-ikut terpasang adalah file-file perintah `/disk-cleanup` untuk Gemini CLI dan OpenCode (lihat "Cara
-memakai"). Di dua agent itu, cukup minta dengan bahasa sehari-hari, atau pakai installer satu baris.
+### Opsi installer satu baris
 
-### 2. Installer satu baris
+Installer mengunduh rilis v1.2.0, mencari agent AI yang ada di komputermu, lalu menyalin `SKILL.md`,
+`scripts/`, dan `LICENSE` ke folder skills tiap agent. Khusus Gemini CLI dan OpenCode, installer juga
+menambahkan beberapa file perintah kecil (`disk-cleanup.toml` dan folder `disk-cleanup/` berisi satu
+file per mode di `~/.gemini/commands/`, serta padanannya berupa file `.md` di
+`~/.config/opencode/commands/`). Installer tidak menjalankan pembersihan, tidak butuh hak
+administrator, dan tidak menulis ke tempat lain.
 
-macOS (Terminal):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.1.0/install.sh | bash
-```
-
-Windows (PowerShell):
-
-```powershell
-irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.1.0/install.ps1 | iex
-```
-
-Installer mengunduh rilis v1.1.0, mencari agent AI yang ada di komputermu, lalu menyalin tiga hal ke
-folder skills tiap agent: `SKILL.md`, `scripts/`, dan `LICENSE`. Khusus Gemini CLI dan OpenCode, yang
-tidak bisa memanggil skill lewat perintah garis miring, installer juga menambahkan beberapa file
-perintah kecil yang isinya hanya meneruskan ke skill: `disk-cleanup.toml` dan folder `disk-cleanup/`
-berisi satu file per mode di `~/.gemini/commands/`, serta padanannya berupa file `.md` di
-`~/.config/opencode/commands/`. Kalau kamu sudah punya file perintah sendiri dengan salah satu nama
-itu, installer tidak menyentuhnya dan memberi tahu kamu. Installer tidak menjalankan pembersihan,
-tidak butuh hak administrator, dan tidak menulis ke tempat lain.
-
-Untuk memasang hanya ke agent tertentu:
+Hanya untuk agent tertentu:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.1.0/install.sh | bash -s -- --agent claude,cursor
+curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.2.0/install.sh | bash -s -- --agent claude,cursor
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.1.0/install.ps1))) -Agent claude,cursor
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.2.0/install.ps1))) -Agent claude,cursor
 ```
 
 Nama agent: `claude`, `codex`, `cursor`, `gemini`, `copilot`, `opencode`, `amp`, `goose`, `agents`.
 
-### 3. Salin manual
+### Plugin Claude Code lewat terminal
 
-Unduh [rilis v1.1.0](https://github.com/awankkaley/disk-cleanup/releases/tag/v1.1.0), ekstrak, lalu
-salin `SKILL.md`, `scripts/`, dan `LICENSE` ke folder bernama `disk-cleanup` di lokasi yang sesuai
-dengan agent kamu:
+```text
+/plugin marketplace add awankkaley/disk-cleanup
+/plugin install disk-cleanup@awankkaley-disk-cleanup
+```
+
+Atau dari shell: `claude plugin marketplace add awankkaley/disk-cleanup`, lalu
+`claude plugin install disk-cleanup@awankkaley-disk-cleanup`. Di Claude Code 2.1.275 ke atas cukup satu
+langkah: `/plugin install disk-cleanup --marketplace awankkaley/disk-cleanup`.
+
+Lewat plugin, tiap mode punya perintahnya sendiri (`/disk-cleanup:scan`, `:scan-only`, `:review`,
+`:deep`, `:help`); lewat skill biasa perintahnya cuma satu:
+`/disk-cleanup [scan-only|review|deep|help|10gb]`. Dua-duanya mengikuti instruksi yang sama dan
+menjalankan skrip yang sama. Kalau kamu memasang keduanya, skill ini muncul dua kali di Claude Code,
+jadi pilih salah satu saja.
+
+### Salin manual
+
+Unduh [rilis v1.2.0](https://github.com/awankkaley/disk-cleanup/releases/tag/v1.2.0), ekstrak, lalu
+salin `SKILL.md`, `scripts/`, dan `LICENSE` ke folder bernama `disk-cleanup`:
 
 | Agent | Folder |
 | --- | --- |
 | Claude Code | `~/.claude/skills/disk-cleanup/` |
-| OpenAI Codex CLI | `~/.agents/skills/disk-cleanup/` |
+| Aplikasi desktop ChatGPT (Codex), Codex CLI | `~/.agents/skills/disk-cleanup/` |
 | Cursor | `~/.cursor/skills/disk-cleanup/` |
 | Gemini CLI | `~/.gemini/skills/disk-cleanup/` |
 | GitHub Copilot CLI | `~/.copilot/skills/disk-cleanup/` |
@@ -154,90 +528,7 @@ Opsional, supaya perintah `/disk-cleanup` tersedia di Gemini CLI atau OpenCode: 
 `~/.gemini/commands/`, atau `commands/opencode/disk-cleanup.md` dan folder
 `commands/opencode/disk-cleanup/` ke `~/.config/opencode/commands/`.
 
-### 4. Plugin Claude Code
-
-Khusus Claude Code. Di dalam Claude Code, ketik dua perintah ini:
-
-```text
-/plugin marketplace add awankkaley/disk-cleanup
-/plugin install disk-cleanup@awankkaley-disk-cleanup
-```
-
-Atau lewat terminal: `claude plugin marketplace add awankkaley/disk-cleanup`, lalu
-`claude plugin install disk-cleanup@awankkaley-disk-cleanup`. Di Claude Code 2.1.275 ke atas cukup satu
-langkah: `/plugin install disk-cleanup --marketplace awankkaley/disk-cleanup`.
-
-Lewat plugin, tiap mode punya perintahnya sendiri: `/disk-cleanup:scan`, `/disk-cleanup:scan-only`,
-`/disk-cleanup:deep`, dan `/disk-cleanup:help`. Lewat skill biasa (cara 1 sampai 3), perintahnya cuma
-satu dan modenya ditulis di belakang: `/disk-cleanup [deep|help|scan-only]`. Dua-duanya mengikuti
-instruksi yang sama dan menjalankan skrip yang sama. Kalau kamu memasang keduanya, skill ini muncul dua
-kali di Claude Code, jadi pilih salah satu saja.
-
-## Cara memakai
-
-### Ketik perintah
-
-| Agent | Pindai, lalu pilih yang dibersihkan | Laporan saja | Scan mendalam (`node_modules` lama) |
-| --- | --- | --- | --- |
-| Claude Code, plugin | `/disk-cleanup:scan` | `/disk-cleanup:scan-only` | `/disk-cleanup:deep` |
-| Claude Code, skill biasa | `/disk-cleanup` | `/disk-cleanup scan-only` | `/disk-cleanup deep` |
-| Gemini CLI ¹ | `/disk-cleanup:scan` | `/disk-cleanup:scan-only` | `/disk-cleanup:deep` |
-| OpenCode ¹ | `/disk-cleanup/scan` | `/disk-cleanup/scan-only` | `/disk-cleanup/deep` |
-| Cursor | `/disk-cleanup` (pilih dari menu `/`) | `/disk-cleanup scan-only` | `/disk-cleanup deep` |
-| GitHub Copilot CLI | `/disk-cleanup` | `/disk-cleanup scan-only` | `/disk-cleanup deep` |
-| OpenAI Codex CLI | `$disk-cleanup` (atau pilih lewat `/skills`) | `$disk-cleanup scan-only` | `$disk-cleanup deep` |
-| Goose | `/skills disk-cleanup`, lalu sampaikan permintaanmu | minta laporan saja | minta scan mendalam |
-| Amp | tidak ada perintah; bilang "pakai skill disk-cleanup" | minta laporan saja | minta scan mendalam |
-
-¹ Butuh file perintah yang ditambahkan installer satu baris. Di dalamnya juga ada `/disk-cleanup` polos
-yang menerima kata tambahan seperti skill biasa, dan perintah `help` (`/disk-cleanup:help` di Gemini
-CLI, `/disk-cleanup/help` di OpenCode). Tanpa file itu (pasang lewat skills CLI atau salin manual),
-minta saja dengan bahasa sehari-hari; cara kerja skill-nya sama.
-
-Perintah bertitik dua atau bergaris miring seperti di atas hanya ada di plugin Claude Code, Gemini CLI,
-dan OpenCode. Di agent lain skill-nya cuma satu, dan modenya kamu tulis di belakang namanya:
-
-| Kamu ketik | Yang terjadi |
-| --- | --- |
-| tanpa tambahan, atau `scan` | Memindai, menampilkan tabel, lalu menanyakan apa yang mau dibersihkan. |
-| `scan-only` | Memindai, menampilkan tabel dan total ruang yang bisa dikosongkan, lalu berhenti. Tidak ada yang dibersihkan dan kamu tidak ditawari apa-apa; jalankan perintah biasa kalau nanti mau membersihkan. |
-| `deep` | Sekalian mencari folder `node_modules` lama, dikelompokkan menurut berapa lama tidak disentuh. |
-| `help` | Menjelaskan skill ini dan pilihan di atas. Tidak menjalankan apa pun. |
-
-Memang sengaja tidak ada pilihan untuk langsung membersihkan. `/disk-cleanup clean all` pun tetap
-memindai dulu, menampilkan tabel, lalu menunggu pilihanmu.
-
-### Atau cukup minta
-
-Minta dengan bahasa sehari-hari, di agent mana pun. Contohnya:
-
-- "Laptop saya hampir penuh. Tolong bantu kosongkan ruang."
-- "Bersihkan file sampah di laptop ini."
-- "Kalau cache dibersihkan, bisa dapat berapa GB?"
-- "Carikan folder node_modules lama yang bisa dihapus."
-- "Sekalian kosongkan tempat sampah."
-
-Asisten akan memindai, menampilkan tabel, lalu menunggu pilihanmu. Contoh percakapan:
-
-> **Kamu:** Laptop saya hampir penuh.
->
-> **Asisten:** Mac kamu sudah saya pindai. Sekitar 14,2 GB bisa dikosongkan dengan aman:
->
-> | Item | Ukuran | Risiko | Yang akan terasa |
-> | --- | --- | --- | --- |
-> | Cache build Xcode | 6,1 GB | aman | Build berikutnya lebih lama. |
-> | Cache Chrome | 3,4 GB | aman | Halaman web sedikit lebih lambat dimuat, sekali saja. |
-> | Cache npm | 2,2 GB | aman | Paket diunduh lagi saat dibutuhkan. |
-> | ... | | | |
->
-> Cache Safari dilewati karena Safari sedang terbuka. Mau saya bersihkan item yang direkomendasikan?
->
-> **Kamu:** Ya, semua kecuali Xcode.
-
-Agent kamu akan meminta izin untuk menjalankan skrip. Itu wajar. Untuk pembersihan ini, seharusnya
-tidak ada perintah lain yang perlu dijalankan.
-
-## Apa saja yang dibersihkan
+## Kategori
 
 Tingkat risiko: **aman** berarti aplikasinya akan membuat ulang sendiri; **perlu dibangun ulang**
 berarti kamu harus menjalankan sebuah perintah untuk mengembalikannya; **permanen** berarti hilang
@@ -248,10 +539,11 @@ selamanya.
 | `app-caches` | Cache aplikasi | macOS, Windows | aman |
 | `temp-files` | File sementara yang lebih tua dari 7 hari | macOS, Windows | aman |
 | `logs` | File log dan laporan crash yang lebih tua dari 7 hari | macOS | aman |
+| `ios-updates` | Installer update iPhone, iPad, dan iPod yang pernah diunduh | macOS | aman |
 | `crash-dumps` | Crash dump aplikasi | Windows | aman |
 | `thumbnail-cache` | Cache thumbnail dan ikon Explorer | Windows | aman |
 | `store-app-caches` | Cache aplikasi Microsoft Store (hanya file sementara dan cache internet) | Windows | aman |
-| `trash` | Tempat sampah / Recycle Bin (hanya kalau kamu minta secara eksplisit) | macOS, Windows | permanen |
+| `trash` | Tempat Sampah / Recycle Bin (hanya kalau kamu minta secara tegas) | macOS, Windows | permanen |
 | `browser-chrome` | Cache Chrome | macOS, Windows | aman |
 | `browser-edge` | Cache Edge | macOS, Windows | aman |
 | `browser-firefox` | Cache Firefox | macOS, Windows | aman |
@@ -274,30 +566,24 @@ selamanya.
 | `xcode-simulators-unavailable` | Simulator yang sudah tidak bisa dipakai Xcode | macOS | aman |
 | `node-modules-stale` | `node_modules` di proyek yang menganggur (hanya deep scan) | macOS, Windows | perlu dibangun ulang |
 
-Penghapusan bersifat permanen. Yang dibersihkan tidak dipindahkan ke tempat sampah atau Recycle Bin.
+Tiap kategori juga punya `rebuild_cost` (1 tidak terasa, 2 diunduh atau dibangun ulang saat dipakai
+lagi, 3 unduh atau bangun ulangnya lama), yang menentukan urutan usulan dari `scan --target-gb`.
 
-Untuk browser, hanya cache yang dihapus. Di Windows, `app-caches` mencakup daftar tetap aplikasi yang
-dikenal (Slack, Discord, Teams, Spotify, VS Code), dan `store-app-caches` hanya mencakup folder
-`TempState` dan `INetCache` milik tiap aplikasi Store; `LocalCache` tidak disentuh.
+`app-caches` mencakup folder cache sistem ditambah tabel tetap berisi aplikasi yang dikenal (Slack,
+Discord, Microsoft Teams, Spotify, Zoom, WhatsApp, Telegram, VS Code; daftar persisnya sedikit berbeda
+antara macOS dan Windows), dan untuk aplikasi-aplikasi itu
+hanya folder bernama `Cache`, `Code Cache`, `GPUCache`, atau `CachedData` (Spotify: `PersistentCache`).
+Aplikasi yang sedang berjalan dilewati. Di Windows, `store-app-caches` hanya mencakup folder
+`TempState` dan `INetCache` milik tiap aplikasi Store; `LocalCache` tidak disentuh. `ios-updates` tidak
+pernah menyentuh cadangan perangkat.
 
-Untuk `pnpm-store`, hasil scan tidak menampilkan ukuran. pnpm hanya membuang paket yang sudah tidak
-dipakai proyek mana pun, jadi berapa ruang yang kosong baru ketahuan setelah dibersihkan.
-
-Alat pengembang yang cache-nya dipindah ke lokasi tidak standar akan tampil sebagai tidak tersedia dan
-dilewati. Kalau mau, bersihkan sendiri dengan perintah bawaan alat itu.
+Untuk `pnpm-store`, hasil scan tidak menampilkan ukuran: pnpm hanya membuang paket yang sudah tidak
+dipakai proyek mana pun, jadi berapa ruang yang lega baru ketahuan setelah dibersihkan. Alat developer
+yang cache-nya dipindah ke lokasi tidak standar akan tampil sebagai tidak tersedia dan dilewati.
 
 Sebuah folder `node_modules` dianggap menganggur hanya jika proyeknya punya `package.json` dan lockfile
-(jadi bisa dipulihkan dengan satu perintah install) dan tidak ada apa pun di proyek itu yang diubah
-selama minimal 30 hari. Batas waktunya kamu yang menentukan.
-
-### Yang tidak pernah disentuh
-
-- Documents, Desktop, Downloads, Pictures, Movies, Music, dan folder cloud drive (iCloud, OneDrive,
-  Dropbox, Google Drive).
-- Cookie, riwayat, kata sandi tersimpan, sesi, bookmark, dan ekstensi browser.
-- Xcode Archives, volume Docker dan image yang bertag, cache modul Go.
-- Apa pun yang butuh hak administrator.
-- Cache aplikasi yang sedang terbuka.
+dan tidak ada apa pun di proyek itu yang diubah selama minimal 30 hari. Batas waktunya kamu yang
+menentukan.
 
 ## Pemakaian manual lewat CLI
 
@@ -307,7 +593,10 @@ macOS:
 
 ```bash
 bash scripts/cleanup.sh scan
+bash scripts/cleanup.sh scan --target-gb 10
 bash scripts/cleanup.sh clean --token <token> --categories npm-cache,browser-chrome
+bash scripts/cleanup.sh review
+bash scripts/cleanup.sh review-apply --token <token review>
 ```
 
 Windows:
@@ -315,15 +604,20 @@ Windows:
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\cleanup.ps1 scan
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\cleanup.ps1 clean --token <token> --categories npm-cache,browser-chrome
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\cleanup.ps1 review
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\cleanup.ps1 review-apply --token <token review>
 ```
 
 | Perintah | Opsi |
 | --- | --- |
-| `scan` | `--deep` ikut mencari `node_modules` yang menganggur (lambat). `--min-age-days N` batas umur file sementara dan log, bawaan 7. `--projects-dir PATH` lokasi yang ditelusuri deep scan, bawaannya folder home. |
+| `scan` | `--deep` ikut mencari `node_modules` yang menganggur (lambat). `--target-gb N` (1 sampai 10000) menambahkan `suggestion`: kategori aman, dari yang paling murah dibangun ulang, yang cukup untuk mencapai N GB. `--min-age-days N` batas umur file sementara dan log, bawaan 7. `--projects-dir PATH` lokasi yang ditelusuri deep scan, bawaannya folder home. |
 | `clean` | `--token ID` dari hasil scan (wajib). `--categories id1,id2` (wajib). `--empty-trash` diperlukan untuk `trash`. `--min-idle-days N` untuk `node-modules-stale`, bawaan sekaligus minimum 30. `--log` menulis daftar path yang dihapus ke file lokal. |
+| `review` | `--min-size-mb N` ukuran terkecil yang dianggap file besar, bawaan 100, minimum 10. `--downloads-age-days N` umur item di Downloads, bawaan 90, minimum 7. Menulis halaman review lalu membukanya; yang dicetak hanya jumlah dan token review. |
+| `review-apply` | `--token ID` dari hasil review (wajib). Membaca `disk-cleanup-selection.json` dari folder Downloads lalu memindahkan file yang dipilih ke Tempat Sampah / Recycle Bin. |
 | `--help`, `--version` | |
 
-Token hasil scan berlaku 15 menit dan hanya untuk satu kali clean.
+Token scan berlaku 15 menit dan untuk satu kali `clean`. Token review terpisah, berlaku 60 menit dan
+untuk satu kali `review-apply`. Review menampilkan paling banyak 500 item, dari yang terbesar.
 
 ## Opsional: Full Disk Access di macOS
 
@@ -331,70 +625,9 @@ macOS melindungi beberapa folder, termasuk cache Safari. Tanpa izin tambahan, ka
 berstatus "tidak ada izin" dan dilewati. Kategori lain tetap berjalan normal.
 
 Kalau kamu ingin cache Safari ikut dibersihkan, buka System Settings > Privacy & Security > Full Disk
-Access, lalu aktifkan aplikasi terminal tempat agent AI kamu berjalan. Izin ini memberi terminal
-tersebut, dan semua yang berjalan di dalamnya, akses ke jauh lebih banyak bagian disk kamu. Jadi
-lakukan hanya kalau kamu merasa nyaman dengan itu. Skill ini tidak pernah memintanya dan tidak pernah
-mengubahnya.
-
-## Cara menghapus skill
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.1.0/install.sh | bash -s -- --uninstall
-```
-
-```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.1.0/install.ps1))) -Uninstall
-```
-
-Kalau dulu memasang lewat skills CLI: `npx skills remove disk-cleanup -g`. Kalau menyalin manual, hapus
-folder `disk-cleanup` dari folder skills agent kamu. Kalau memasang plugin Claude Code:
-`claude plugin uninstall disk-cleanup@awankkaley-disk-cleanup`, lalu
-`claude plugin marketplace remove awankkaley-disk-cleanup`.
-
-`install.sh` hanya mau menimpa atau menghapus folder `disk-cleanup` yang memang skill ini (`SKILL.md`-nya
-berisi `name: disk-cleanup`). Kalau ternyata ada folder lain dengan nama yang sama, installer berhenti
-dan tidak mengubah apa pun. File perintah untuk Gemini CLI dan OpenCode diperlakukan sama hati-hatinya:
-hanya dihapus kalau memuat baris penanda dari installer, jadi perintah `disk-cleanup` buatanmu sendiri
-tetap aman, dan subfolder `disk-cleanup` baru ikut dihapus kalau isinya sudah kosong.
-
-Skrip menyimpan satu folder state kecil (token scan terakhir dan log yang pernah kamu minta). Folder itu
-juga boleh dihapus: `~/Library/Application Support/disk-cleanup` di macOS, `%LOCALAPPDATA%\disk-cleanup`
-di Windows.
-
-## Pertanyaan umum
-
-**Apakah aman?**
-Kategori yang direkomendasikan adalah cache dan file sementara yang akan dibuat ulang sendiri oleh
-aplikasinya. Paling-paling yang terasa adalah aplikasi atau proses build jadi lebih lambat saat pertama
-kali dipakai lagi. Yang lebih berisiko diberi label dan tidak pernah dipilih secara otomatis.
-
-**Bisakah pembersihan dibatalkan?**
-Tidak. File dihapus, bukan dipindahkan ke tempat sampah. Itu sebabnya skill ini hanya menyasar hal-hal
-yang bisa dibuat ulang, dan mengosongkan tempat sampah butuh persetujuan eksplisit dari kamu.
-
-**Apakah AI bisa melihat nama file saya?**
-Lewat skill ini, tidak; skrip hanya melaporkan angka total. Skill ini juga memerintahkan AI agar tidak
-melihat-lihat sendiri, tetapi bagian itu sifatnya instruksi, bukan gembok. Lihat "Jaminan privasi".
-
-**Kenapa ada kategori yang dilewati?**
-Biasanya karena aplikasinya sedang terbuka (tutup dulu, lalu minta scan ulang), karena alatnya tidak
-terpasang, karena macOS menolak akses (lihat Full Disk Access), atau karena sebuah alat pengembang
-menyimpan cache-nya di lokasi tidak standar, yang tidak akan disentuh skrip.
-
-**Ruang yang kosong ternyata lebih sedikit dari hasil scan.**
-Sebagian file sedang dipakai atau dilindungi sehingga tidak bisa dihapus; itu dilaporkan sebagai
-"partial" (sebagian). Aplikasi juga langsung mengisi cache-nya lagi.
-
-**Bisa dipakai di Linux?**
-Tidak. Installer tetap akan menyalin skill-nya, tetapi skripnya hanya mendukung macOS dan Windows.
-
-**Apakah saya akan ter-logout dari situs web?**
-Tidak. Cookie, sesi, dan kata sandi tersimpan tidak disentuh, hanya cache browser.
-
-**Kenapa tidak bisa mencari file besar saya?**
-Menampilkan daftar file besar berarti memperlihatkan nama file kamu ke AI. Untuk itu pakai Finder
-(macOS: menu Apple > About This Mac > More Info > Storage Settings) atau Windows Settings > System >
-Storage.
+Access, lalu aktifkan aplikasi tempat agent AI kamu berjalan. Izin ini memberi aplikasi tersebut, dan
+semua yang berjalan di dalamnya, akses ke jauh lebih banyak bagian disk kamu. Jadi lakukan hanya kalau
+kamu merasa nyaman dengan itu. Skill ini tidak pernah memintanya dan tidak pernah mengubahnya.
 
 ## Berkontribusi
 
@@ -402,20 +635,20 @@ Issue dan pull request dipersilakan. Aturan yang paling penting:
 
 - Keluaran skrip tidak boleh memuat path, nama file, nama pengguna, atau string runtime lainnya. Label
   dan pesan adalah konstanta tetap.
-- Setiap penghapusan harus lewat satu rutin hapus yang berpengaman.
+- Setiap penghapusan permanen harus lewat satu rutin hapus yang berpengaman. File pribadi hanya boleh
+  dipindahkan ke Tempat Sampah, lewat satu rutin khusus untuk itu.
 - `scripts/cleanup.sh` harus jalan di bash 3.2 bawaan macOS; `scripts/cleanup.ps1` harus jalan di
   Windows PowerShell 5.1. Tanpa dependensi tambahan.
 
-**Menambah aplikasi Windows ke `app-caches`.** Di `scripts/cleanup.ps1` ada tabel data berisi aplikasi
-yang dikenal. Tambahkan satu baris berisi nama proses aplikasi dan folder cache-nya di bawah `%APPDATA%`
-atau `%LOCALAPPDATA%`. Hanya subfolder `Cache`, `Code Cache`, `GPUCache`, dan `CachedData` yang
-diperbolehkan. Tambahkan tes di `tests/` yang membuktikan cache-nya terhapus dan file non-cache di
-sebelahnya tetap ada.
+**Menambah aplikasi ke `app-caches`.** Di kedua skrip ada tabel data berisi aplikasi yang dikenal.
+Tambahkan satu baris berisi nama proses aplikasi dan folder cache-nya. Hanya subfolder `Cache`,
+`Code Cache`, `GPUCache`, dan `CachedData` yang diperbolehkan. Tambahkan tes di `tests/` yang
+membuktikan cache-nya terhapus dan file non-cache di sebelahnya tetap ada.
 
 **Menambah kategori.** Tambahkan ke daftar kategori di kedua skrip kalau konsepnya ada di kedua
-platform, dengan id yang stabil, teks label dan impact yang tetap, serta tingkat risiko. Utamakan
-perintah pembersihan resmi dari alatnya. Tambahkan tes untuk: pelaporan ukuran, pembersihan, status
-dilewati, dan pemeriksaan privasi. Setelah itu tambahkan baris ke tabel di `SKILL.md`, `README.md`, dan
+platform, dengan id yang stabil, teks label dan impact yang tetap, tingkat risiko, dan rebuild cost.
+Utamakan perintah pembersihan resmi dari alatnya. Tambahkan tes untuk: pelaporan ukuran, pembersihan,
+status dilewati, dan pemeriksaan privasi. Setelah itu tambahkan baris ke tabel di `README.md` dan
 `README.id.md`.
 
 **Menjalankan tes.** Tes memakai folder home palsu dan alat tiruan; file aslimu tidak pernah disentuh.
@@ -433,6 +666,19 @@ Invoke-Pester -Path tests
 
 Untuk mencoba installer dari checkout tanpa mengunduh: `./install.sh --local .` (checkout-nya tidak
 boleh salinan yang sudah terpasang; installer menolak kalau sumber dan tujuannya saling tumpang tindih).
+
+## Sumber tabel aplikasi
+
+Diperiksa pada November 2026 dari dokumentasi resmi masing-masing:
+
+- Tab Code di aplikasi desktop Claude berjalan lokal dan memuat skill: <https://code.claude.com/docs/en/desktop>, <https://code.claude.com/docs/en/desktop-quickstart>
+- Mengunggah skill dalam bentuk ZIP, dan skill di chat berjalan di sandbox: <https://claude.com/docs/skills/how-to>, <https://claude.com/docs/skills/overview>
+- Lingkungan terisolasi Cowork: <https://support.claude.com/en/articles/13345190-get-started-with-claude-cowork>
+- Skill dan izin di aplikasi desktop ChatGPT dan Codex: <https://learn.chatgpt.com/docs/build-skills>, <https://learn.chatgpt.com/docs/permission-modes>
+- Tugas cloud ChatGPT tidak punya akses ke file lokal: <https://help.openai.com/en/articles/20001548-agent-security-and-local-work-sync-in-chatgpt>
+- Skill dan terminal di Cursor: <https://cursor.com/docs/context/skills>, <https://cursor.com/docs/agent/terminal>
+- Skill di Gemini CLI: <https://geminicli.com/docs/cli/skills/>
+- Skill di GitHub Copilot: <https://docs.github.com/en/copilot/concepts/agents/about-agent-skills>
 
 ## Lisensi
 

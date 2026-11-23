@@ -20,7 +20,7 @@ setup() {
   cp -R "$REPO_ROOT/commands" "$CHECKOUT/commands"
   cp -R "$REPO_ROOT/.claude-plugin" "$REPO_ROOT/skills" "$CHECKOUT/"
   JSON_TOOL="$REPO_ROOT/tests/helpers/json.pl"
-  MODES="scan scan-only deep help"
+  MODES="scan scan-only review deep help"
   GEMINI_COMMAND="$FAKE_HOME/.gemini/commands/disk-cleanup.toml"
   OPENCODE_COMMAND="$FAKE_HOME/.config/opencode/commands/disk-cleanup.md"
   GEMINI_NAMESPACE="$FAKE_HOME/.gemini/commands/disk-cleanup"
@@ -451,7 +451,7 @@ snapshot_home() {
 
 @test "shipped command files carry the marker, pass the arguments and hold no script paths" {
   local file
-  [ "$(find "$REPO_ROOT/commands" -type f | wc -l | tr -d ' ')" = "10" ]
+  [ "$(find "$REPO_ROOT/commands" -type f | wc -l | tr -d ' ')" = "12" ]
   while IFS= read -r file; do
     grep -qF 'disk-cleanup-skill:managed-command' "$file"
     grep -qF 'approves nothing' "$file"
@@ -478,7 +478,7 @@ snapshot_home() {
       done
     done
   done
-  [ "$(find "$REPO_ROOT/commands" -mindepth 3 -type f | wc -l | tr -d ' ')" = "8" ]
+  [ "$(find "$REPO_ROOT/commands" -mindepth 3 -type f | wc -l | tr -d ' ')" = "10" ]
 }
 
 @test "namespaced command files are installed into a disk-cleanup subfolder" {
@@ -489,8 +489,8 @@ snapshot_home() {
     cmp -s "$CHECKOUT/commands/gemini/disk-cleanup/$mode.toml" "$GEMINI_NAMESPACE/$mode.toml"
     cmp -s "$CHECKOUT/commands/opencode/disk-cleanup/$mode.md" "$OPENCODE_NAMESPACE/$mode.md"
   done
-  [ "$(ls -A "$GEMINI_NAMESPACE" | LC_ALL=C sort | tr '\n' ' ')" = "deep.toml help.toml scan-only.toml scan.toml " ]
-  [ "$(ls -A "$OPENCODE_NAMESPACE" | LC_ALL=C sort | tr '\n' ' ')" = "deep.md help.md scan-only.md scan.md " ]
+  [ "$(ls -A "$GEMINI_NAMESPACE" | LC_ALL=C sort | tr '\n' ' ')" = "deep.toml help.toml review.toml scan-only.toml scan.toml " ]
+  [ "$(ls -A "$OPENCODE_NAMESPACE" | LC_ALL=C sort | tr '\n' ' ')" = "deep.md help.md review.md scan-only.md scan.md " ]
 }
 
 @test "re-install refreshes our namespaced command files and --uninstall removes the empty subfolder" {
@@ -578,7 +578,7 @@ snapshot_home() {
 @test "SKILL.md takes optional arguments and never lets them skip the confirmation" {
   local skill="$REPO_ROOT/SKILL.md"
   [ "$(grep -cF '$ARGUMENTS' "$skill")" -eq 1 ]
-  grep -q '^  version: "1.1.0"$' "$skill"
+  grep -q '^  version: "1.2.0"$' "$skill"
   grep -qi 'arguments never skip' "$skill"
   run grep -qE '\$[0-9]' "$skill"
   [ "$status" -eq 1 ]
@@ -593,6 +593,30 @@ snapshot_home() {
   grep -q '^### Scan only' "$skill"
   grep -qi 'do not run `clean` in this' "$skill"
   grep -q '^12\. Arguments never skip the confirmation step\.' "$skill"
+}
+
+@test "SKILL.md documents review as a mode whose files the AI never reads" {
+  local skill="$REPO_ROOT/SKILL.md" phrase
+  grep -qF '| `review` (' "$skill"
+  grep -q '^### Review' "$skill"
+  grep -qF 'review-apply --token' "$skill"
+  grep -q '^13\. Never open, read, print, search or summarise the review page' "$skill"
+  grep -q '^14\. Never ask the user to type or paste file or folder names' "$skill"
+  grep -q '^16\. Never run `review` and `review-apply` in the same turn\.' "$skill"
+  for phrase in 'report_location_hint' 'SELECTION_NOT_FOUND' 'SELECTION_INVALID' 'Save selection' \
+    'space_freed_when_trash_emptied' 'ONLY they can see that page'; do
+    grep -qF "$phrase" "$skill"
+  done
+}
+
+@test "SKILL.md documents the target form and the plain-language presentation rules" {
+  local skill="$REPO_ROOT/SKILL.md" phrase
+  grep -q '^### Target' "$skill"
+  grep -q '^### How to talk to the user' "$skill"
+  for phrase in 'scan --target-gb N' '`10gb`' 'suggestion.category_ids' 'reaches_target' 'rebuild_cost' \
+    'Never show `not_found` rows' '"Developer tools" heading' 'The suggestion approves nothing'; do
+    grep -qF "$phrase" "$skill"
+  done
 }
 
 json_get() {
@@ -631,8 +655,8 @@ frontmatter_value() {
 
 @test "plugin skills are thin: one per mode, named after their folder, with no rules of their own" {
   local mode file
-  [ "$(ls -A "$REPO_ROOT/skills" | LC_ALL=C sort | tr '\n' ' ')" = "deep help scan scan-only " ]
-  [ "$(find "$REPO_ROOT/skills" -type f | wc -l | tr -d ' ')" = "4" ]
+  [ "$(ls -A "$REPO_ROOT/skills" | LC_ALL=C sort | tr '\n' ' ')" = "deep help review scan scan-only " ]
+  [ "$(find "$REPO_ROOT/skills" -type f | wc -l | tr -d ' ')" = "5" ]
   for mode in $MODES; do
     file="$REPO_ROOT/skills/$mode/SKILL.md"
     [ "$(frontmatter_value "$file" name)" = "$mode" ]
@@ -653,15 +677,15 @@ frontmatter_value() {
   local mode
   run grep -q '^disable-model-invocation:' "$REPO_ROOT/skills/scan/SKILL.md"
   [ "$status" -eq 1 ]
-  for mode in scan-only deep help; do
+  for mode in scan-only review deep help; do
     [ "$(frontmatter_value "$REPO_ROOT/skills/$mode/SKILL.md" disable-model-invocation)" = "true" ]
   done
 }
 
-@test "pinned version and download URL point at the v1.1.0 tag" {
-  grep -q '^VERSION="v1.1.0"$' "$REPO_ROOT/install.sh"
-  grep -q "^    \$Version = 'v1.1.0'\$" "$REPO_ROOT/install.ps1"
-  run grep -q 'v1\.0\.0' "$REPO_ROOT/README.md" "$REPO_ROOT/README.id.md" "$REPO_ROOT/install.sh" "$REPO_ROOT/install.ps1"
+@test "pinned version and download URL point at the v1.2.0 tag" {
+  grep -q '^VERSION="v1.2.0"$' "$REPO_ROOT/install.sh"
+  grep -q "^    \$Version = 'v1.2.0'\$" "$REPO_ROOT/install.ps1"
+  run grep -qE 'v1\.[01]\.0' "$REPO_ROOT/README.md" "$REPO_ROOT/README.id.md" "$REPO_ROOT/install.sh" "$REPO_ROOT/install.ps1"
   [ "$status" -eq 1 ]
   grep -q 'github.com/${REPO}/archive/refs/tags/${VERSION}.tar.gz' "$REPO_ROOT/install.sh"
 }

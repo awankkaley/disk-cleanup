@@ -126,3 +126,94 @@ Describe 'tool clean result on timeout' {
         Test-Path -LiteralPath (Join-Path -Path $script:goDir -ChildPath 'zqobject') | Should -BeTrue
     }
 }
+
+Describe 'review platform functions' {
+    BeforeEach {
+        Set-StrictMode -Version Latest
+        $script:sandbox = Initialize-Sandbox -Root $TestDrive
+        $script:sample = Join-Path -Path $script:sandbox.Home -ChildPath 'Videos\zqsample.bin'
+        Add-SandboxFile -Path $script:sample -SizeBytes 4096
+    }
+
+    AfterEach {
+        Restore-SandboxEnvironment
+    }
+
+    It 'does not open the report when the skip switch is set' {
+        $env:DISK_CLEANUP_SKIP_REPORT_OPEN = '1'
+
+        Open-ReviewReport -Path $script:sample | Should -BeFalse
+    }
+
+    It 'moves nothing and reports a failure when the recycle skip switch is set' {
+        $env:DISK_CLEANUP_SKIP_RECYCLE = '1'
+
+        Send-FileToRecycleBin -Path $script:sample | Should -BeExactly 'failed'
+        Test-Path -LiteralPath $script:sample | Should -BeTrue
+    }
+
+    It 'keeps the recycle result names and the switch value stable' {
+        $script:RECYCLE_FAILED | Should -BeExactly 'failed'
+        $script:RECYCLE_DENIED | Should -BeExactly 'denied'
+        $script:RECYCLE_TRASHED | Should -BeExactly 'trashed'
+        $script:SKIP_SEAM_VALUE | Should -BeExactly '1'
+    }
+
+    It 'recognizes an access-denied error at any depth' {
+        $denied = New-Object -TypeName System.UnauthorizedAccessException -ArgumentList 'zqdenied'
+        $wrapped = New-Object -TypeName System.InvalidOperationException -ArgumentList 'zqouter', $denied
+        $other = New-Object -TypeName System.IO.IOException -ArgumentList 'zqbusy'
+
+        Test-AccessDeniedError -Exception $denied | Should -BeTrue
+        Test-AccessDeniedError -Exception $wrapped | Should -BeTrue
+        Test-AccessDeniedError -Exception $other | Should -BeFalse
+        Test-AccessDeniedError -Exception $null | Should -BeFalse
+    }
+
+    It 'measures what a plain file occupies on disk' {
+        if (-not (Test-WindowsHost)) {
+            Set-ItResult -Skipped -Because 'the size on disk is asked from Windows'
+            return
+        }
+
+        Get-AllocatedFileSize -Path $script:sample | Should -Be 4096
+    }
+
+    It 'returns nothing for a file it cannot measure' {
+        Get-AllocatedFileSize -Path (Join-Path -Path $script:sandbox.Home -ChildPath 'zqmissing.bin') | Should -BeNullOrEmpty
+    }
+
+    It 'answers whether the Recycle Bin can hold a file without ever failing' {
+        $tooBig = Test-RecycleBinCanHold -Path $script:sample -Bytes ([long]::MaxValue)
+        $tiny = Test-RecycleBinCanHold -Path $script:sample -Bytes 1
+
+        $tooBig | Should -BeFalse
+        $tiny | Should -BeOfType [bool]
+    }
+
+    It 'says no when the Recycle Bin is switched off by policy or for the volume' {
+        Mock Test-RecyclePolicyOff { $true }
+        Test-RecycleBinCanHold -Path $script:sample -Bytes 1 | Should -BeFalse
+
+        Mock Test-RecyclePolicyOff { $false }
+        Mock Get-RecycleVolumeLimit { [long]0 }
+        Test-RecycleBinCanHold -Path $script:sample -Bytes 1 | Should -BeFalse
+    }
+
+    It 'compares the file with the capacity of the volume: <Bytes> bytes fit is <Expected>' -ForEach @(
+        @{ Bytes = 1048576; Expected = $true }
+        @{ Bytes = 5242880; Expected = $true }
+        @{ Bytes = 5242881; Expected = $false }
+    ) {
+        Mock Test-RecyclePolicyOff { $false }
+        Mock Get-RecycleVolumeLimit { [long]5242880 }
+
+        Test-RecycleBinCanHold -Path $script:sample -Bytes $Bytes | Should -Be $Expected
+    }
+
+    It 'says no when the settings cannot be read' {
+        Mock Test-RecyclePolicyOff { throw 'zqregistry' }
+
+        Test-RecycleBinCanHold -Path $script:sample -Bytes 1 | Should -BeFalse
+    }
+}

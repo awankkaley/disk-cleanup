@@ -3,7 +3,7 @@ BeforeAll {
     $script:repoRoot = [System.IO.Path]::GetFullPath((Join-Path -Path $PSScriptRoot -ChildPath '..'))
     $script:installScript = Join-Path -Path $script:repoRoot -ChildPath 'install.ps1'
     $script:powershellExe = Join-Path -Path $PSHOME -ChildPath 'powershell.exe'
-    $script:commandModes = @('scan', 'scan-only', 'deep', 'help')
+    $script:commandModes = @('scan', 'scan-only', 'review', 'deep', 'help')
 
     # The installer always runs in a child process against a sandboxed USERPROFILE and
     # with --local, so it never downloads anything and never sees the real profile.
@@ -265,7 +265,7 @@ Describe 'install.ps1' {
         foreach ($agent in @('gemini', 'opencode')) {
             $namespaceDir = Get-NamespaceDir -Agent $agent
             $extension = Get-CommandExtension -Agent $agent
-            @(Get-ChildName -Directory $namespaceDir).Count | Should -Be 4
+            @(Get-ChildName -Directory $namespaceDir).Count | Should -Be 5
             foreach ($mode in $script:commandModes) {
                 $modeFile = Join-Path -Path $namespaceDir -ChildPath ($mode + '.' + $extension)
                 Test-Path -LiteralPath $modeFile -PathType Leaf | Should -BeTrue
@@ -300,7 +300,7 @@ Describe 'install.ps1' {
         Test-Path -LiteralPath (Get-SkillDir -AgentFolder '.gemini') | Should -BeFalse
         Test-Path -LiteralPath $neighbour | Should -BeTrue
         Test-Path -LiteralPath (Get-CommandFile -Agent 'opencode') -PathType Leaf | Should -BeTrue
-        @(Get-ChildName -Directory (Get-NamespaceDir -Agent 'opencode')).Count | Should -Be 4
+        @(Get-ChildName -Directory (Get-NamespaceDir -Agent 'opencode')).Count | Should -Be 5
     }
 
     It 'never replaces or removes a file in the namespace subfolder that is not its own' {

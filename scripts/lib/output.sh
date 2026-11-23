@@ -13,9 +13,21 @@ is_uint() {
   [ "${#1}" -le "$MAX_UINT_DIGITS" ]
 }
 
-error_message() {
+review_error_message() {
   case "$1" in
-    USAGE) printf 'Usage: cleanup scan [--deep] [--min-age-days N] [--projects-dir PATH] or cleanup clean --token ID --categories id1,id2 [--empty-trash] [--min-idle-days N] [--log].' ;;
+    TOKEN_MISSING) printf 'Run review first and pass its token with --token.' ;;
+    TOKEN_INVALID) printf 'The token does not match the latest review. Run review again.' ;;
+    TOKEN_EXPIRED) printf 'Run review again; the previous review is older than 60 minutes.' ;;
+    SELECTION_NOT_FOUND) printf 'No saved selection was found in the Downloads folder. Ask the user to tick items in the report and press Save selection.' ;;
+    SELECTION_INVALID) printf 'The saved selection is damaged or belongs to another review. Ask the user to save the selection again from the latest report.' ;;
+    *) return 1 ;;
+  esac
+}
+
+error_message() {
+  if [ "${REVIEW_MODE:-0}" = 1 ] && review_error_message "$1"; then return 0; fi
+  case "$1" in
+    USAGE) printf 'Usage: cleanup scan [--deep] [--min-age-days N] [--projects-dir PATH] [--target-gb N], cleanup clean --token ID --categories id1,id2 [--empty-trash] [--min-idle-days N] [--log], cleanup review [--min-size-mb N] [--downloads-age-days N] or cleanup review-apply --token ID.' ;;
     UNKNOWN_CATEGORY) printf 'At least one requested category id does not exist on this platform.' ;;
     TOKEN_MISSING) printf 'Run scan first and pass its token with --token.' ;;
     TOKEN_INVALID) printf 'The token does not match the latest scan. Run scan again.' ;;
@@ -23,7 +35,7 @@ error_message() {
     CATEGORY_NOT_IN_SCAN) printf 'Every requested category must have status ok in the scan that issued the token.' ;;
     TRASH_FLAG_REQUIRED) printf 'Emptying the trash is irreversible and requires --empty-trash.' ;;
     DEEP_SCAN_REQUIRED) printf 'node-modules-stale requires a token from scan --deep.' ;;
-    INVALID_ARGUMENT) printf 'An option value is not acceptable. Day counts must be whole numbers within the allowed range and the projects directory must be an existing folder inside the home directory.' ;;
+    INVALID_ARGUMENT) printf 'An option value is not acceptable. Numbers must be whole numbers within the allowed range and the projects directory must be an existing folder inside the home directory.' ;;
     UNSUPPORTED_PLATFORM) printf 'This script supports macOS only.' ;;
     *) printf 'The script could not run safely in this environment.' ;;
   esac
@@ -36,6 +48,7 @@ fail() {
     USAGE) exit_code=$EXIT_USAGE ;;
     UNKNOWN_CATEGORY | TOKEN_MISSING | TOKEN_INVALID | TOKEN_EXPIRED | CATEGORY_NOT_IN_SCAN) ;;
     TRASH_FLAG_REQUIRED | DEEP_SCAN_REQUIRED | INVALID_ARGUMENT | UNSUPPORTED_PLATFORM) ;;
+    SELECTION_NOT_FOUND | SELECTION_INVALID) ;;
     *) code=INTERNAL ;;
   esac
   emit_document "$(printf '{"schema_version":%d,"error":{"code":"%s","message":"%s"}}' \
@@ -81,8 +94,8 @@ json_scan_category() {
   [ "$CAT_ID" = "$TRASH_CATEGORY" ] && flag="\"$TRASH_FLAG\""
   printf '{"id":"%s","label":"%s","group":"%s","size_bytes":%s,"item_count":%s,' \
     "$CAT_ID" "$CAT_LABEL" "$CAT_GROUP" "$(json_uint_or_null "$R_SIZE")" "$(json_uint_or_null "$R_COUNT")"
-  printf '"status":"%s","recommended":%s,"risk":"%s","impact":"%s","requires_flag":%s%s}' \
-    "$R_STATUS" "$(json_bool "$recommended")" "$CAT_RISK" "$CAT_IMPACT" "$flag" "$R_EXTRA"
+  printf '"status":"%s","recommended":%s,"risk":"%s","rebuild_cost":%s,"impact":"%s","requires_flag":%s%s}' \
+    "$R_STATUS" "$(json_bool "$recommended")" "$CAT_RISK" "$CAT_COST" "$CAT_IMPACT" "$flag" "$R_EXTRA"
 }
 
 json_clean_result() {

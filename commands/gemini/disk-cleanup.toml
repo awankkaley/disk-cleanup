@@ -1,7 +1,7 @@
 # disk-cleanup-skill:managed-command
 # Installed by the disk-cleanup installer (https://github.com/awankkaley/disk-cleanup).
 # The line above marks this file as the installer's own, so uninstall may remove it.
-description = "Free disk space privately: scans first, then you choose what to clean. Optional: scan-only, deep, help."
+description = "Free disk space privately: scans first, then you choose what to clean. Optional: scan-only, review, deep, help."
 prompt = """
 Activate the installed `disk-cleanup` agent skill and follow its SKILL.md exactly, hard rules included.
 This command only starts that skill; it adds no permissions and approves nothing. Whatever the

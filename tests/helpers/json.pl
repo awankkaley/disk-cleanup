@@ -43,7 +43,8 @@ sub check {
 
 sub schema_scan {
   expect_keys('scan', $doc, qw(schema_version command platform token
-    token_expires_in_seconds disk recommended_total_bytes categories));
+    token_expires_in_seconds disk recommended_total_bytes categories),
+    exists $doc->{suggestion} ? "suggestion" : ());
   check($doc->{schema_version} == 1, 'schema_version');
   check($doc->{command} eq 'scan', 'command');
   check($doc->{platform} eq 'macos', 'platform');
@@ -53,13 +54,14 @@ sub schema_scan {
   check(is_int($doc->{disk}{$_}), "disk.$_") for qw(total_bytes free_bytes);
   check(is_int($doc->{recommended_total_bytes}), 'recommended_total_bytes');
   schema_category($_) for @{ $doc->{categories} };
+  schema_suggestion() if exists $doc->{suggestion};
 }
 
 sub schema_category {
   my ($cat) = @_;
   my $id = $cat->{id} // '?';
   my @keys = qw(id label group size_bytes item_count status recommended risk
-    impact requires_flag);
+    impact requires_flag rebuild_cost);
   push @keys, 'buckets' if $id eq 'node-modules-stale';
   expect_keys("category $id", $cat, @keys);
   check(is_text($cat->{$_}), "$id.$_") for qw(id label impact);
@@ -70,6 +72,7 @@ sub schema_category {
   check(JSON::PP::is_bool($cat->{recommended}), "$id.recommended type");
   check((!!$cat->{recommended}) == ($cat->{risk} eq 'safe'), "$id.recommended value");
   check(is_int_or_null($cat->{$_}), "$id.$_") for qw(size_bytes item_count);
+  check(one_of($cat->{rebuild_cost}, 1, 2, 3), "$id.rebuild_cost");
   my $flag = $id eq 'trash' ? '--empty-trash' : undef;
   check((show($cat->{requires_flag}) eq show($flag)), "$id.requires_flag");
   return unless $id eq 'node-modules-stale';
@@ -113,13 +116,89 @@ sub schema_clean {
   check($total == $doc->{freed_total_bytes}, 'freed_total_bytes is the sum');
 }
 
+sub schema_suggestion {
+  my $plan = $doc->{suggestion};
+  expect_keys('suggestion', $plan, qw(target_bytes category_ids total_bytes reaches_target));
+  check(is_int($plan->{$_}), "suggestion.$_") for qw(target_bytes total_bytes);
+  check(JSON::PP::is_bool($plan->{reaches_target}), 'suggestion.reaches_target type');
+  check((!!$plan->{reaches_target}) == ($plan->{total_bytes} >= $plan->{target_bytes}),
+    'suggestion.reaches_target value');
+  my ($sum, $last_cost, $last_size) = (0, 0, undef);
+  for my $id (@{ $plan->{category_ids} }) {
+    my $cat = by_id($doc->{categories}, $id);
+    check(defined $cat, "suggestion names unknown category $id");
+    next unless defined $cat;
+    check($cat->{status} eq 'ok' && $cat->{recommended} && ($cat->{size_bytes} // 0) > 0,
+      "suggestion.$id is not a candidate");
+    my $ordered = $cat->{rebuild_cost} > $last_cost
+      || ($cat->{rebuild_cost} == $last_cost && $cat->{size_bytes} <= $last_size);
+    check($ordered, "suggestion.$id is out of order");
+    ($last_cost, $last_size) = ($cat->{rebuild_cost}, $cat->{size_bytes});
+    $sum += $cat->{size_bytes} // 0;
+  }
+  check($sum == $plan->{total_bytes}, 'suggestion.total_bytes is the sum');
+}
+
+sub schema_review {
+  my @keys = qw(schema_version command platform token token_expires_in_seconds groups
+    total_item_count total_size_bytes truncated report_opened report_location_hint
+    selection_file_hint);
+  push @keys, 'skipped_no_permission' if exists $doc->{skipped_no_permission};
+  expect_keys('review', $doc, @keys);
+  check($doc->{schema_version} == 1, 'schema_version');
+  check($doc->{command} eq 'review', 'command');
+  check($doc->{platform} eq 'macos', 'platform');
+  check($doc->{token} =~ /^[0-9a-f]{8}$/, 'token');
+  check($doc->{token_expires_in_seconds} == 3600, 'ttl');
+  check(JSON::PP::is_bool($doc->{$_}), "$_ type") for qw(truncated report_opened);
+  check(show($doc->{skipped_no_permission}) eq 'true', 'skipped_no_permission value')
+    if exists $doc->{skipped_no_permission};
+  check($doc->{report_location_hint} eq '~/Library/Application Support/disk-cleanup/review.html',
+    'report_location_hint');
+  check($doc->{selection_file_hint} eq 'Downloads/disk-cleanup-selection.json', 'selection_file_hint');
+  my %labels = ('large-files' => 'Large files', 'old-downloads' => 'Old items in Downloads');
+  check(join(',', map { $_->{id} } @{ $doc->{groups} }) eq 'large-files,old-downloads', 'group ids');
+  my ($count, $bytes) = (0, 0);
+  for my $group (@{ $doc->{groups} }) {
+    expect_keys('group', $group, qw(id label item_count size_bytes));
+    check(($labels{ $group->{id} } // '') eq $group->{label}, 'group label');
+    check(is_int($group->{$_}), "group.$_") for qw(item_count size_bytes);
+    $count += $group->{item_count};
+    $bytes += $group->{size_bytes};
+  }
+  check(is_int($doc->{$_}), $_) for qw(total_item_count total_size_bytes);
+  check($count == $doc->{total_item_count}, 'total_item_count is the sum');
+  check($bytes == $doc->{total_size_bytes}, 'total_size_bytes is the sum');
+}
+
+sub schema_review_apply {
+  my @counts = qw(selected_count trashed_count trashed_bytes skipped_changed_count
+    skipped_no_permission_count failed_count ignored_count);
+  expect_keys('review-apply', $doc, qw(schema_version command platform disk_before disk_after
+    space_freed_when_trash_emptied), @counts);
+  check($doc->{schema_version} == 1, 'schema_version');
+  check($doc->{command} eq 'review-apply', 'command');
+  check($doc->{platform} eq 'macos', 'platform');
+  check(is_int($doc->{$_}), $_) for @counts;
+  for my $key (qw(disk_before disk_after)) {
+    expect_keys($key, $doc->{$key}, 'free_bytes');
+    check(is_int($doc->{$key}{free_bytes}), "$key.free_bytes");
+  }
+  check(show($doc->{space_freed_when_trash_emptied}) eq 'true', 'space_freed_when_trash_emptied');
+  my $handled = 0;
+  $handled += $doc->{$_} for qw(trashed_count skipped_changed_count skipped_no_permission_count
+    failed_count ignored_count);
+  check($handled == $doc->{selected_count}, 'selected_count is the sum of the outcomes');
+}
+
 sub schema_error {
   expect_keys('error doc', $doc, qw(schema_version error));
   check($doc->{schema_version} == 1, 'schema_version');
   expect_keys('error', $doc->{error}, qw(code message));
   check(one_of($doc->{error}{code}, qw(USAGE UNKNOWN_CATEGORY TOKEN_MISSING
     TOKEN_INVALID TOKEN_EXPIRED CATEGORY_NOT_IN_SCAN TRASH_FLAG_REQUIRED
-    DEEP_SCAN_REQUIRED INVALID_ARGUMENT UNSUPPORTED_PLATFORM INTERNAL)), 'error code');
+    DEEP_SCAN_REQUIRED INVALID_ARGUMENT UNSUPPORTED_PLATFORM INTERNAL
+    SELECTION_NOT_FOUND SELECTION_INVALID)), 'error code');
   check(is_text($doc->{error}{message}), 'error message');
 }
 
@@ -130,6 +209,9 @@ sub walk_strings {
   return if !defined $node || ref $node;
   return if $key eq 'log_location_hint'
     && $node eq '~/Library/Application Support/disk-cleanup/logs';
+  return if $key eq "report_location_hint"
+    && $node eq "~/Library/Application Support/disk-cleanup/review.html";
+  return if $key eq "selection_file_hint" && $node eq "Downloads/disk-cleanup-selection.json";
   push @problems, "$key contains a path separator" if $node =~ m{[/\\]};
 }
 
@@ -154,7 +236,8 @@ if ($command eq 'get') {
 } elsif ($command eq 'ok-ids') {
   print join(',', map { $_->{id} } grep { $_->{status} eq 'ok' } @{ $doc->{categories} }), "\n";
 } elsif ($command eq 'schema') {
-  my %checks = (scan => \&schema_scan, clean => \&schema_clean, error => \&schema_error);
+  my %checks = (scan => \&schema_scan, clean => \&schema_clean, error => \&schema_error,
+    review => \&schema_review, "review-apply" => \&schema_review_apply);
   $checks{ $ARGV[0] }->();
 } elsif ($command eq 'strings-clean') {
   walk_strings($doc, '');

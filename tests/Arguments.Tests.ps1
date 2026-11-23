@@ -46,6 +46,29 @@ Describe 'command line contract' {
         @{ Line = 'clean --token abcdef12 --categories trash'; Code = 'TRASH_FLAG_REQUIRED'; Status = 1 }
         @{ Line = 'clean --token not-a-token --categories temp-files'; Code = 'TOKEN_INVALID'; Status = 1 }
         @{ Line = 'clean --token abcdef12 --categories temp-files'; Code = 'TOKEN_INVALID'; Status = 1 }
+        @{ Line = 'scan --target-gb'; Code = 'USAGE'; Status = 2 }
+        @{ Line = 'scan --target-gb 0'; Code = 'INVALID_ARGUMENT'; Status = 1 }
+        @{ Line = 'scan --target-gb 10001'; Code = 'INVALID_ARGUMENT'; Status = 1 }
+        @{ Line = 'scan --target-gb 1.5'; Code = 'INVALID_ARGUMENT'; Status = 1 }
+        @{ Line = 'scan --target-gb -4'; Code = 'INVALID_ARGUMENT'; Status = 1 }
+        @{ Line = 'scan --target-gb ten'; Code = 'INVALID_ARGUMENT'; Status = 1 }
+        @{ Line = 'clean --token abcdef12 --categories temp-files --target-gb 5'; Code = 'USAGE'; Status = 2 }
+        @{ Line = 'REVIEW'; Code = 'USAGE'; Status = 2 }
+        @{ Line = 'review --token abcdef12'; Code = 'USAGE'; Status = 2 }
+        @{ Line = 'review --deep'; Code = 'USAGE'; Status = 2 }
+        @{ Line = 'review stray'; Code = 'USAGE'; Status = 2 }
+        @{ Line = 'review --min-size-mb'; Code = 'USAGE'; Status = 2 }
+        @{ Line = 'review --min-size-mb 9'; Code = 'INVALID_ARGUMENT'; Status = 1 }
+        @{ Line = 'review --min-size-mb big'; Code = 'INVALID_ARGUMENT'; Status = 1 }
+        @{ Line = 'review --min-size-mb 99999999'; Code = 'INVALID_ARGUMENT'; Status = 1 }
+        @{ Line = 'review --downloads-age-days 6'; Code = 'INVALID_ARGUMENT'; Status = 1 }
+        @{ Line = 'review --downloads-age-days -90'; Code = 'INVALID_ARGUMENT'; Status = 1 }
+        @{ Line = 'review-apply'; Code = 'TOKEN_MISSING'; Status = 1 }
+        @{ Line = 'review-apply --categories temp-files'; Code = 'USAGE'; Status = 2 }
+        @{ Line = 'review-apply --token abcdef12 --empty-trash'; Code = 'USAGE'; Status = 2 }
+        @{ Line = 'review-apply --token not-a-token'; Code = 'TOKEN_INVALID'; Status = 1 }
+        @{ Line = 'review-apply --token ABCDEF12'; Code = 'TOKEN_INVALID'; Status = 1 }
+        @{ Line = 'review-apply --token abcdef12'; Code = 'TOKEN_INVALID'; Status = 1 }
     ) {
         $arguments = [string[]]@($Line.Split(' ') | Where-Object { $_.Length -gt 0 })
 
@@ -95,6 +118,36 @@ Describe 'command line contract' {
         $options.Command | Should -Be 'scan'
         $options.Deep | Should -BeTrue
         $options.MinAgeDays | Should -Be 14
+    }
+
+    It 'parses the scan target and the review flags into options' {
+        $scan = ConvertFrom-CliArgument -Arguments @('scan', '--target-gb', '25')
+        $plain = ConvertFrom-CliArgument -Arguments @('scan')
+        $defaults = ConvertFrom-CliArgument -Arguments @('review')
+        $review = ConvertFrom-CliArgument -Arguments @('review', '--min-size-mb=10', '--downloads-age-days', '7')
+        $apply = ConvertFrom-CliArgument -Arguments @('review-apply', '--token', 'abcdef12')
+
+        $scan.TargetGb | Should -Be 25
+        $plain.TargetGb | Should -Be 0
+        $defaults.Command | Should -Be 'review'
+        $defaults.MinSizeMb | Should -Be 100
+        $defaults.DownloadsAgeDays | Should -Be 90
+        $review.MinSizeMb | Should -Be 10
+        $review.DownloadsAgeDays | Should -Be 7
+        $apply.Command | Should -Be 'review-apply'
+        $apply.Token | Should -Be 'abcdef12'
+    }
+
+    It 'lists every command in the help document' {
+        $usage = (Invoke-CleanupJson -Arguments @('--help')).Data.usage -join '|'
+
+        $usage | Should -Match 'cleanup scan .*--target-gb N'
+        $usage | Should -Match 'cleanup review \['
+        $usage | Should -Match 'cleanup review-apply --token ID'
+    }
+
+    It 'reports version 1.2.0' {
+        (Invoke-CleanupJson -Arguments @('--version')).Data.version | Should -Be '1.2.0'
     }
 
     It 'parses clean flags into options' {

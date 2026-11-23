@@ -12,7 +12,8 @@ BeforeAll {
         'ok', 'empty', 'not_found', 'skipped_running', 'skipped_needs_admin', 'skipped_no_permission', 'unavailable'
     )
     $script:entryFields = @(
-        'id', 'label', 'group', 'size_bytes', 'item_count', 'status', 'recommended', 'risk', 'impact', 'requires_flag'
+        'id', 'label', 'group', 'size_bytes', 'item_count', 'status', 'recommended', 'risk', 'impact', 'requires_flag',
+        'rebuild_cost'
     )
 }
 

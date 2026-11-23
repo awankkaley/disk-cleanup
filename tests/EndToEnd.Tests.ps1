@@ -101,3 +101,93 @@ Describe 'cleanup.ps1 in a child process' {
         Assert-PrivateOutput -Json $second.Lines[0] -Sandbox $script:sandbox
     }
 }
+
+Describe 'review and review-apply in a child process' {
+    BeforeEach {
+        Set-StrictMode -Version Latest
+        $script:externalRoot = Get-ExternalSandboxRoot
+        $script:canRun = (Test-WindowsHost) -and (Test-Path -LiteralPath $script:powershellExe) -and
+            ($null -ne $script:externalRoot)
+        $script:sandbox = $null
+        if ($script:canRun) {
+            # Initialize-Sandbox sets the two skip switches, and the child inherits them:
+            # no browser opens and nothing reaches the real Recycle Bin of this machine.
+            $script:sandbox = Initialize-Sandbox -Root $script:externalRoot
+            $script:files = Add-SandboxReviewFixture -Sandbox $script:sandbox
+        }
+    }
+
+    AfterEach {
+        Restore-SandboxEnvironment
+        if (($null -ne $script:sandbox) -and [System.IO.Directory]::Exists($script:sandbox.Base)) {
+            [System.IO.Directory]::Delete($script:sandbox.Base, $true)
+        }
+    }
+
+    It 'reviews, reads the saved selection and accounts for every ticked file, printing private JSON' {
+        if (-not $script:canRun) {
+            Set-ItResult -Skipped -Because 'this needs Windows PowerShell and a folder outside the real user profile'
+            return
+        }
+        $before = (Get-SandboxFileList -Root $script:sandbox.Home) -join '|'
+
+        $review = Invoke-CleanupProcess -Arguments @('review', '--min-size-mb', '10')
+
+        $review.ExitCode | Should -Be 0
+        $review.Lines.Count | Should -Be 1
+        $reviewData = ConvertFrom-Json -InputObject $review.Lines[0]
+        $reviewData.command | Should -Be 'review'
+        $reviewData.token | Should -MatchExactly '^[0-9a-f]{8}$'
+        $reviewData.total_item_count | Should -Be 5
+        $reviewData.total_size_bytes | Should -Be 34603508
+        $reviewData.report_opened | Should -BeFalse
+        Assert-PrivateOutput -Json $review.Lines[0] -Sandbox $script:sandbox
+        Test-Path -LiteralPath $script:sandbox.Report | Should -BeTrue
+        Test-Path -LiteralPath $script:sandbox.Manifest | Should -BeTrue
+        $own = @($script:sandbox.Report, $script:sandbox.Manifest)
+        (@(Get-SandboxFileList -Root $script:sandbox.Home | Where-Object { $own -notcontains $_ }) -join '|') | Should -Be $before
+
+        $selection = Add-SandboxSelection -Sandbox $script:sandbox -Token ([string]$reviewData.token) -Ids @(1, 4, 99)
+        $apply = Invoke-CleanupProcess -Arguments @('review-apply', '--token', [string]$reviewData.token)
+
+        $apply.ExitCode | Should -Be 0
+        $apply.Lines.Count | Should -Be 1
+        $applyData = ConvertFrom-Json -InputObject $apply.Lines[0]
+        $applyData.command | Should -Be 'review-apply'
+        $applyData.selected_count | Should -Be 3
+        $applyData.ignored_count | Should -Be 1
+        $applyData.trashed_count | Should -Be 0
+        $applyData.failed_count | Should -Be 2
+        $applyData.skipped_changed_count | Should -Be 0
+        Assert-PrivateOutput -Json $apply.Lines[0] -Sandbox $script:sandbox
+        Test-Path -LiteralPath $script:files.Holiday | Should -BeTrue
+        Test-Path -LiteralPath $script:files.OldInstaller | Should -BeTrue
+        Test-Path -LiteralPath $selection | Should -BeFalse
+        Test-Path -LiteralPath $script:sandbox.Report | Should -BeFalse
+        Test-Path -LiteralPath $script:sandbox.Manifest | Should -BeFalse
+        ((Get-SandboxFileList -Root $script:sandbox.Home) -join '|') | Should -Be $before
+    }
+
+    It 'exits 1 with a JSON error when the review token is reused or no selection was saved' {
+        if (-not $script:canRun) {
+            Set-ItResult -Skipped -Because 'this needs Windows PowerShell and a folder outside the real user profile'
+            return
+        }
+        $review = Invoke-CleanupProcess -Arguments @('review', '--min-size-mb', '10')
+        $token = [string](ConvertFrom-Json -InputObject $review.Lines[0]).token
+
+        $missing = Invoke-CleanupProcess -Arguments @('review-apply', '--token', $token)
+        $null = Add-SandboxSelection -Sandbox $script:sandbox -Token $token -Ids @(5)
+        $first = Invoke-CleanupProcess -Arguments @('review-apply', '--token', $token)
+        $second = Invoke-CleanupProcess -Arguments @('review-apply', '--token', $token)
+
+        $missing.ExitCode | Should -Be 1
+        (ConvertFrom-Json -InputObject $missing.Lines[0]).error.code | Should -Be 'SELECTION_NOT_FOUND'
+        $first.ExitCode | Should -Be 0
+        $second.ExitCode | Should -Be 1
+        $second.Lines.Count | Should -Be 1
+        (ConvertFrom-Json -InputObject $second.Lines[0]).error.code | Should -Be 'TOKEN_INVALID'
+        Assert-PrivateOutput -Json $second.Lines[0] -Sandbox $script:sandbox
+        Test-Path -LiteralPath $script:files.OldNotes | Should -BeTrue
+    }
+}

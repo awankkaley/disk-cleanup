@@ -3,6 +3,7 @@
 
 readonly SIMCTL_PROBE_SECONDS=30
 readonly UNKNOWN=""
+readonly BYTES_PER_GB=1073741824
 
 R_STATUS=""
 R_SIZE=0
@@ -142,8 +143,44 @@ scan_category() {
   return 0
 }
 
+# suggestion_json TARGET_BYTES CANDIDATES: CANDIDATES holds one "cost size id"
+# line per category that may be suggested. Cheapest rebuild first, then the
+# largest, until the target is covered; ties keep the catalog order.
+suggestion_json() {
+  printf '%s\n' "$2" | awk -v target="$1" '
+    NF == 3 { count++; cost[count] = $1; size[count] = $2; id[count] = $3 }
+    function precedes(a, b) {
+      return cost[a] < cost[b] || (cost[a] == cost[b] && size[a] > size[b])
+    }
+    END {
+      for (taken = 0; taken < count && total < target; taken++) {
+        best = 0
+        for (i = 1; i <= count; i++)
+          if (!(i in used) && (best == 0 || precedes(i, best))) best = i
+        used[best] = 1
+        total += size[best]
+        ids = ids (taken ? "," : "") "\"" id[best] "\""
+      }
+      printf "{\"target_bytes\":%.0f,\"category_ids\":[%s],\"total_bytes\":%.0f,\"reaches_target\":%s}", \
+        target, ids, total, (total >= target ? "true" : "false")
+    }'
+}
+
+# Adds the scanned category to SUGGEST_CANDIDATES when it may be suggested.
+note_suggestion_candidate() {
+  [ "$R_STATUS" = "ok" ] && [ "$CAT_RISK" = "safe" ] || return 0
+  is_uint "$R_SIZE" && [ "$R_SIZE" -gt 0 ] || return 0
+  SUGGEST_CANDIDATES="$SUGGEST_CANDIDATES$CAT_COST $R_SIZE $CAT_ID"$'\n'
+}
+
+scan_suggestion() {
+  [ -n "$OPT_TARGET_GB" ] || return 0
+  printf ',"suggestion":%s' "$(suggestion_json "$((OPT_TARGET_GB * BYTES_PER_GB))" "$SUGGEST_CANDIDATES")"
+}
+
 run_scan() {
   local row id token disk ok_ids="" body="" separator="" recommended_total=0
+  SUGGEST_CANDIDATES=""
   ensure_private_dir "$STATE_DIR" || fail INTERNAL
   disk=$(disk_bytes)
   if ! is_uint "${disk% *}" || ! is_uint "${disk#* }"; then fail INTERNAL; fi
@@ -153,6 +190,7 @@ run_scan() {
     scan_category "$id" || fail INTERNAL
     body="$body$separator$(json_scan_category)"
     separator=","
+    note_suggestion_candidate
     [ "$R_STATUS" = "ok" ] || continue
     ok_ids="$ok_ids${ok_ids:+,}$id"
     [ "$CAT_RISK" = "safe" ] && is_uint "$R_SIZE" && recommended_total=$((recommended_total + R_SIZE))
@@ -162,7 +200,7 @@ run_scan() {
   emit_document "$(
     printf '{"schema_version":%d,"command":"scan","platform":"%s","token":"%s","token_expires_in_seconds":%d,' \
       "$SCHEMA_VERSION" "$PLATFORM" "$token" "$TOKEN_TTL_SECONDS"
-    printf '"disk":{"total_bytes":%s,"free_bytes":%s},"recommended_total_bytes":%s,"categories":[%s]}' \
-      "${disk% *}" "${disk#* }" "$recommended_total" "$body"
+    printf '"disk":{"total_bytes":%s,"free_bytes":%s},"recommended_total_bytes":%s,"categories":[%s]%s}' \
+      "${disk% *}" "${disk#* }" "$recommended_total" "$body" "$(scan_suggestion)"
   )"
 }
