@@ -75,31 +75,14 @@ pasang versi plugin-nya dengan `/plugin marketplace add awankkaley/disk-cleanup`
 
 ### Aplikasi desktop Claude
 
-Langkah berikut menganggap kamu sudah memakai aplikasi desktop Claude dengan paket Claude berbayar.
+Hanya tab **Code** yang bisa membersihkan disk: tab itu adalah Claude Code yang berjalan di
+komputermu sendiri. Tab **Chat** dan **Cowork** bekerja di sandbox dan tidak bisa menjangkau disk,
+jadi skill ini tidak jalan di sana. Langkah berikut menganggap kamu sudah memakai aplikasi desktop
+Claude dengan paket Claude berbayar.
 
-**Cara 1: unggah satu file, tanpa Terminal**
-
-1. Unduh [`disk-cleanup.zip`](https://github.com/awankkaley/disk-cleanup/releases/download/v1.2.0/disk-cleanup.zip).
-   Jangan diekstrak.
-2. Di aplikasi desktop Claude, buka **Plugins**, klik **Add**, lalu **Upload plugin**.
-3. Pilih `disk-cleanup.zip` tadi. Kalau Claude meminta kamu menyalakan "Code execution and file
-   creation", nyalakan di Settings > Capabilities.
-4. Pastikan **disk-cleanup** sudah muncul di daftar plugin dan dalam keadaan aktif.
-5. Klik tab **Code** di bagian atas sidebar. Di bawah kotak pesan, klik pilihan paling kiri dan pilih
-   entri teratas di kelompok **Local**. Setelah itu pilih **Open folder…** dan pilih folder mana
-   saja, misalnya folder kosong yang baru kamu buat. Folder itu tidak dipakai untuk bersih-bersih;
-   aplikasinya saja yang butuh satu folder.
-6. Ketik: `Laptop saya hampir penuh, tolong bantu legakan.` Atau ketik `/disk-cleanup:scan` (ada
-   juga `:scan-only`, `:review`, `:deep`, `:help`).
-
-Pakainya di tab **Code**, bukan Chat atau Cowork. Skill-nya memang ikut muncul di sana, tapi dari
-tab-tab itu disk kamu tidak terjangkau, dan skill-nya akan bilang begitu.
-
-**Cara 2: tempel satu baris**
-
-1. Buka Terminal (Mac: tekan Command+Spasi, ketik `Terminal`, tekan Enter) atau PowerShell (Windows:
-   klik Start, ketik `PowerShell`, tekan Enter).
-2. Salin baris yang sesuai komputermu, tempel di jendela tadi, lalu tekan Enter.
+1. Pasang skill-nya. Kalau sudah ada Node.js, pakai perintah Claude Code di atas. Kalau belum, buka
+   Terminal (Mac: tekan Command+Spasi, ketik `Terminal`, tekan Enter) atau PowerShell (Windows: klik
+   Start, ketik `PowerShell`, tekan Enter), tempel baris yang sesuai komputermu, lalu tekan Enter.
 
    Mac:
 
@@ -113,11 +96,14 @@ tab-tab itu disk kamu tidak terjangkau, dan skill-nya akan bilang begitu.
    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.2.0/install.ps1))) -Agent claude
    ```
 
-3. Kalau sudah muncul tulisan "Done", tutup jendelanya, buka ulang aplikasi Claude, lalu lanjut dari
-   langkah 5 di atas.
-
-Installer ini hanya menyalin skill ke folder skills milik Claude. Tidak ada yang dibersihkan, dan
-kamu tidak akan dimintai kata sandi.
+   Kalau sudah muncul tulisan "Done", tutup jendelanya lalu buka ulang aplikasi Claude. Installer ini
+   hanya menyalin skill ke folder skills milik Claude. Tidak ada yang dibersihkan, dan kamu tidak akan
+   dimintai kata sandi.
+2. Klik tab **Code** di bagian atas sidebar. Di bawah kotak pesan, klik pilihan paling kiri dan pilih
+   entri teratas di kelompok **Local**. Setelah itu pilih **Open folder…** dan pilih folder mana saja,
+   misalnya folder kosong yang baru kamu buat. Folder itu tidak dipakai untuk bersih-bersih;
+   aplikasinya saja yang butuh satu folder.
+3. Ketik: `Laptop saya hampir penuh, tolong bantu legakan.` atau `/disk-cleanup`.
 
 ### Aplikasi desktop ChatGPT (Codex)
 
@@ -462,8 +448,6 @@ Tidak. Hanya komputer macOS dan Windows.
 
 ## Cara menghapus skill
 
-- Diunggah ke aplikasi desktop Claude: buka Plugins, cari disk-cleanup, lalu matikan atau hapus dari
-  sana.
 - Plugin Claude Code: `claude plugin uninstall disk-cleanup@awankkaley-disk-cleanup`, lalu
   `claude plugin marketplace remove awankkaley-disk-cleanup`.
 - Dipasang lewat installer satu baris:

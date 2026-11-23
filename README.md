@@ -75,30 +75,13 @@ install the plugin instead with `/plugin marketplace add awankkaley/disk-cleanup
 
 ### Claude desktop app
 
-These steps assume you already use the Claude desktop app with a paid Claude plan.
+Only the **Code** tab can clean your disk: it is Claude Code running on your own computer. The
+**Chat** and **Cowork** tabs work in a sandbox and cannot reach your disk, so the skill does not work
+there. These steps assume you already use the Claude desktop app with a paid Claude plan.
 
-**Way 1: upload a file, no Terminal needed**
-
-1. Download [`disk-cleanup.zip`](https://github.com/awankkaley/disk-cleanup/releases/download/v1.2.0/disk-cleanup.zip).
-   Do not unpack it.
-2. In the Claude desktop app, open **Plugins**, click **Add**, then **Upload plugin**.
-3. Choose the `disk-cleanup.zip` you downloaded. If Claude asks you to turn on "Code execution and
-   file creation", do so under Settings > Capabilities.
-4. Check that **disk-cleanup** now appears in your plugins and is turned on.
-5. Click the **Code** tab at the top of the sidebar. Under the message box, click the first control
-   and choose the top entry under **Local**. Then choose **Open folder…** and pick any folder, for
-   example a new empty folder. The cleanup does not use that folder; the app just needs one.
-6. Type: `My laptop is almost full, help me free up space.` Or type `/disk-cleanup:scan` (also
-   `:scan-only`, `:review`, `:deep`, `:help`).
-
-Use the **Code** tab, not Chat or Cowork. The skill shows up there too, but it cannot reach your
-disk from those tabs and will tell you so.
-
-**Way 2: paste one line**
-
-1. Open Terminal (Mac: press Command+Space, type `Terminal`, press Enter) or PowerShell (Windows:
-   click Start, type `PowerShell`, press Enter).
-2. Copy the line for your computer, paste it into that window and press Enter.
+1. Install the skill. If you have Node.js, use the Claude Code command above. If not, open Terminal
+   (Mac: press Command+Space, type `Terminal`, press Enter) or PowerShell (Windows: click Start, type
+   `PowerShell`, press Enter), paste the line for your computer and press Enter.
 
    Mac:
 
@@ -112,10 +95,12 @@ disk from those tabs and will tell you so.
    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.2.0/install.ps1))) -Agent claude
    ```
 
-3. When it says "Done", close the window, restart the Claude app, and continue from step 5 above.
-
-The installer only copies the skill into Claude's skills folder. It does not clean anything and does
-not ask for a password.
+   When it says "Done", close the window and restart the Claude app. The installer only copies the
+   skill into Claude's skills folder. It does not clean anything and does not ask for a password.
+2. Click the **Code** tab at the top of the sidebar. Under the message box, click the first control
+   and choose the top entry under **Local**. Then choose **Open folder…** and pick any folder, for
+   example a new empty folder. The cleanup does not use that folder; the app just needs one.
+3. Type: `My laptop is almost full, help me free up space.` or `/disk-cleanup`.
 
 ### ChatGPT desktop app (Codex)
 
@@ -443,8 +428,6 @@ No. macOS and Windows computers only.
 
 ## Uninstall
 
-- Uploaded to the Claude desktop app: open Plugins, find disk-cleanup, and turn it off or remove it
-  there.
 - Claude Code plugin: `claude plugin uninstall disk-cleanup@awankkaley-disk-cleanup`, then
   `claude plugin marketplace remove awankkaley-disk-cleanup`.
 - Installed with the one-line installer:
