@@ -81,15 +81,16 @@ Langkah berikut menganggap kamu sudah memakai aplikasi desktop Claude dengan pak
 
 1. Unduh [`disk-cleanup.zip`](https://github.com/awankkaley/disk-cleanup/releases/download/v1.2.0/disk-cleanup.zip).
    Jangan diekstrak.
-2. Di aplikasi desktop Claude, buka **Customize**, lalu **Skills**.
-3. Klik tombol **+** untuk mengunggah skill, lalu pilih `disk-cleanup.zip` tadi. Kalau Claude meminta
-   kamu menyalakan "Code execution and file creation", nyalakan di Settings > Capabilities.
-4. Cari **disk-cleanup** di daftar, lalu aktifkan.
+2. Di aplikasi desktop Claude, buka **Plugins**, klik **Add**, lalu **Upload plugin**.
+3. Pilih `disk-cleanup.zip` tadi. Kalau Claude meminta kamu menyalakan "Code execution and file
+   creation", nyalakan di Settings > Capabilities.
+4. Pastikan **disk-cleanup** sudah muncul di daftar plugin dan dalam keadaan aktif.
 5. Klik tab **Code** di bagian atas sidebar. Di bawah kotak pesan, klik pilihan paling kiri dan pilih
    entri teratas di kelompok **Local**. Setelah itu pilih **Open folder…** dan pilih folder mana
    saja, misalnya folder kosong yang baru kamu buat. Folder itu tidak dipakai untuk bersih-bersih;
    aplikasinya saja yang butuh satu folder.
-6. Ketik: `Laptop saya hampir penuh, tolong bantu legakan.`
+6. Ketik: `Laptop saya hampir penuh, tolong bantu legakan.` Atau ketik `/disk-cleanup:scan` (ada
+   juga `:scan-only`, `:review`, `:deep`, `:help`).
 
 Pakainya di tab **Code**, bukan Chat atau Cowork. Skill-nya memang ikut muncul di sana, tapi dari
 tab-tab itu disk kamu tidak terjangkau, dan skill-nya akan bilang begitu.
@@ -461,8 +462,8 @@ Tidak. Hanya komputer macOS dan Windows.
 
 ## Cara menghapus skill
 
-- Diunggah ke aplikasi desktop Claude: buka Customize > Skills, buka disk-cleanup, lalu matikan atau
-  hapus dari sana.
+- Diunggah ke aplikasi desktop Claude: buka Plugins, cari disk-cleanup, lalu matikan atau hapus dari
+  sana.
 - Plugin Claude Code: `claude plugin uninstall disk-cleanup@awankkaley-disk-cleanup`, lalu
   `claude plugin marketplace remove awankkaley-disk-cleanup`.
 - Dipasang lewat installer satu baris:

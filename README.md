@@ -81,14 +81,15 @@ These steps assume you already use the Claude desktop app with a paid Claude pla
 
 1. Download [`disk-cleanup.zip`](https://github.com/awankkaley/disk-cleanup/releases/download/v1.2.0/disk-cleanup.zip).
    Do not unpack it.
-2. In the Claude desktop app, open **Customize**, then **Skills**.
-3. Use the **+** button to upload a skill, and choose the `disk-cleanup.zip` you downloaded. If Claude
-   asks you to turn on "Code execution and file creation", do so under Settings > Capabilities.
-4. Find **disk-cleanup** in the list and turn it on.
+2. In the Claude desktop app, open **Plugins**, click **Add**, then **Upload plugin**.
+3. Choose the `disk-cleanup.zip` you downloaded. If Claude asks you to turn on "Code execution and
+   file creation", do so under Settings > Capabilities.
+4. Check that **disk-cleanup** now appears in your plugins and is turned on.
 5. Click the **Code** tab at the top of the sidebar. Under the message box, click the first control
    and choose the top entry under **Local**. Then choose **Open folder…** and pick any folder, for
    example a new empty folder. The cleanup does not use that folder; the app just needs one.
-6. Type: `My laptop is almost full, help me free up space.`
+6. Type: `My laptop is almost full, help me free up space.` Or type `/disk-cleanup:scan` (also
+   `:scan-only`, `:review`, `:deep`, `:help`).
 
 Use the **Code** tab, not Chat or Cowork. The skill shows up there too, but it cannot reach your
 disk from those tabs and will tell you so.
@@ -442,8 +443,8 @@ No. macOS and Windows computers only.
 
 ## Uninstall
 
-- Uploaded to the Claude desktop app: open Customize > Skills, open disk-cleanup, and turn it off or
-  remove it there.
+- Uploaded to the Claude desktop app: open Plugins, find disk-cleanup, and turn it off or remove it
+  there.
 - Claude Code plugin: `claude plugin uninstall disk-cleanup@awankkaley-disk-cleanup`, then
   `claude plugin marketplace remove awankkaley-disk-cleanup`.
 - Installed with the one-line installer:
