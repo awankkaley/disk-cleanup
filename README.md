@@ -2,8 +2,6 @@
 
 **English** | [Bahasa Indonesia](README.id.md)
 
-> **Pre-release:** `v1.0.0` is not tagged yet. The install commands below start working once the release is published.
-
 An Agent Skill that lets your AI assistant (Claude Code, Codex CLI, Cursor, Gemini CLI and others) free
 up disk space on macOS and Windows without ever seeing your files.
 

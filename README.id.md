@@ -2,8 +2,6 @@
 
 [English](README.md) | **Bahasa Indonesia**
 
-> **Pra-rilis:** `v1.0.0` belum diberi tag. Perintah instalasi di bawah baru berfungsi setelah rilis diterbitkan.
-
 Agent Skill yang membuat asisten AI kamu (Claude Code, Codex CLI, Cursor, Gemini CLI, dan lainnya) bisa
 mengosongkan ruang penyimpanan di macOS dan Windows tanpa pernah melihat file kamu.
 
