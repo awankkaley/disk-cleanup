@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macOS (bash 3.2, bats, shellcheck)
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install bats-core and shellcheck
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: brew install bats-core shellcheck
+
+      - name: Shellcheck
+        run: |
+          files="install.sh scripts/cleanup.sh"
+          for lib in scripts/lib/*.sh; do
+            if [ -f "$lib" ]; then
+              files="$files $lib"
+            fi
+          done
+          # shellcheck disable=SC2086
+          shellcheck -s bash $files
+
+      - name: Bats
+        run: bats tests/
+
+  windows:
+    name: Windows (PowerShell 5.1, Pester, PSScriptAnalyzer)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Pester 5 and PSScriptAnalyzer
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name Pester -MinimumVersion 5.0.0 -MaximumVersion 5.99.99 -Scope CurrentUser -Force -SkipPublisherCheck
+          Install-Module -Name PSScriptAnalyzer -Scope CurrentUser -Force
+
+      - name: PSScriptAnalyzer
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $findings = @(Invoke-ScriptAnalyzer -Path scripts -Recurse -Severity Error)
+          $findings += @(Invoke-ScriptAnalyzer -Path install.ps1 -Severity Error)
+          if ($findings.Count -gt 0) {
+              $findings | Format-Table -AutoSize | Out-String -Width 200 | Write-Output
+              exit 1
+          }
+
+      - name: Pester
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Import-Module Pester -MinimumVersion 5.0.0
+          Invoke-Pester -Path tests -CI

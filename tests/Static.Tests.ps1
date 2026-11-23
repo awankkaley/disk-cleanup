@@ -1,0 +1,285 @@
+BeforeAll {
+    $script:scriptRoot = Join-Path -Path $PSScriptRoot -ChildPath '..\scripts'
+    $script:entryScript = Join-Path -Path $script:scriptRoot -ChildPath 'cleanup.ps1'
+    $script:sourceFiles = @([System.IO.Directory]::GetFiles($script:scriptRoot, '*.ps1', [System.IO.SearchOption]::AllDirectories))
+    $script:maxFileLines = 800
+    $script:maxFunctionLines = 50
+
+    function Get-SourceMatchList {
+        param([string]$Pattern)
+        foreach ($file in $script:sourceFiles) {
+            $number = 0
+            foreach ($line in [System.IO.File]::ReadAllLines($file)) {
+                $number += 1
+                if ($line.TrimStart().StartsWith('#')) { continue }
+                if ($line -match $Pattern) { ([System.IO.Path]::GetFileName($file) + ':' + $number) }
+            }
+        }
+    }
+}
+
+Describe 'source rules' {
+    BeforeEach {
+        Set-StrictMode -Version Latest
+    }
+
+    It 'finds the script and its libraries' {
+        $script:sourceFiles.Count | Should -BeGreaterThan 1
+        Test-Path -LiteralPath $script:entryScript | Should -BeTrue
+    }
+
+    It 'parses without syntax errors in this PowerShell version' {
+        $problems = @(foreach ($file in $script:sourceFiles) {
+                $tokens = $null
+                $errors = $null
+                $null = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors)
+                foreach ($parseError in @($errors)) {
+                    [System.IO.Path]::GetFileName($file) + ': ' + $parseError.Message
+                }
+            })
+
+        ($problems -join '; ') | Should -BeNullOrEmpty
+    }
+
+    It 'is ASCII only, because Windows PowerShell 5.1 misreads UTF-8 without a BOM' {
+        $offenders = @(foreach ($file in $script:sourceFiles) {
+                $highBytes = @([System.IO.File]::ReadAllBytes($file) | Where-Object { $_ -gt 127 })
+                if ($highBytes.Count -gt 0) { [System.IO.Path]::GetFileName($file) }
+            })
+
+        ($offenders -join ', ') | Should -BeNullOrEmpty
+    }
+
+    It 'keeps every file under 800 lines and every function under 50 lines' {
+        $offenders = @(foreach ($file in $script:sourceFiles) {
+                $name = [System.IO.Path]::GetFileName($file)
+                if (@([System.IO.File]::ReadAllLines($file)).Count -ge $script:maxFileLines) { $name }
+                $tokens = $null
+                $errors = $null
+                $ast = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors)
+                $definitions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true))
+                foreach ($definition in $definitions) {
+                    $length = $definition.Extent.EndLineNumber - $definition.Extent.StartLineNumber + 1
+                    if ($length -ge $script:maxFunctionLines) { $name + ':' + $definition.Name }
+                }
+            })
+
+        ($offenders -join ', ') | Should -BeNullOrEmpty
+    }
+
+    It 'removes files in exactly one place' {
+        (@(Get-SourceMatchList -Pattern 'Remove-Item|\brm\b|\bdel\b|\berase\b|\brmdir\b') -join ', ') | Should -BeNullOrEmpty
+        $deleteCalls = @(Get-SourceMatchList -Pattern '\.Delete\(|::Delete\(|DeleteFile|DeleteDirectory')
+        $deleteCalls.Count | Should -Be 1
+        $deleteCalls[0] | Should -Match '^FileSystem\.ps1:'
+    }
+
+    It 'never elevates, kills processes, changes permissions or goes online' {
+        $pattern = 'sudo|runas|RunAs|Start-Process|Stop-Process|taskkill|icacls|takeown|Set-Acl|Invoke-WebRequest|Invoke-RestMethod|Net\.WebClient'
+
+        (@(Get-SourceMatchList -Pattern $pattern) -join ', ') | Should -BeNullOrEmpty
+    }
+
+    It 'terminates nothing but its own timed-out child process' {
+        (@(Get-SourceMatchList -Pattern 'Get-Process[^|]*\|.*Kill|\.CloseMainWindow\(|\.Terminate\(') -join ', ') | Should -BeNullOrEmpty
+        $killCalls = @(Get-SourceMatchList -Pattern '\.Kill\(')
+        $killCalls.Count | Should -Be 1
+        $killCalls[0] | Should -Match '^Platform\.ps1:'
+    }
+
+    It 'never changes the working directory of the caller' {
+        (@(Get-SourceMatchList -Pattern 'Set-Location|Push-Location|\bcd\b|\bchdir\b|CurrentDirectory') -join ', ') | Should -BeNullOrEmpty
+    }
+
+    It 'never writes to the host or leaves debug output behind' {
+        (@(Get-SourceMatchList -Pattern 'Write-Host|Write-Debug|Write-Verbose|Write-Warning|\[Console\]') -join ', ') | Should -BeNullOrEmpty
+    }
+
+    It 'only prunes dangling docker images' {
+        . $script:entryScript
+
+        ($script:DOCKER_PRUNE_ARGUMENTS -join ' ') | Should -Be 'image prune --force'
+    }
+}
+
+Describe 'category catalog' {
+    BeforeAll {
+        . $script:entryScript
+    }
+
+    BeforeEach {
+        Set-StrictMode -Version Latest
+    }
+
+    It 'gives every category a handler and static, separator-free text' {
+        foreach ($category in $script:CATEGORIES) {
+            @('directory', 'tool', 'docker', 'trash', 'node-modules') | Should -Contain $category['Kind']
+            $category['Label'] | Should -Not -Match '[\\/]'
+            $category['Impact'] | Should -Not -Match '[\\/]'
+            $category['Id'] | Should -MatchExactly '^[a-z]+(-[a-z]+)*$'
+        }
+    }
+
+    It 'has a tool or directory definition for every table-driven category' {
+        foreach ($category in $script:CATEGORIES) {
+            if ($category['Kind'] -eq 'tool') { $script:TOOL_CATEGORIES.ContainsKey($category['Id']) | Should -BeTrue }
+        }
+        foreach ($id in @('temp-files', 'crash-dumps', 'thumbnail-cache', 'gradle-cache', 'cargo-cache')) {
+            $script:SIMPLE_DIRECTORY_CATEGORIES.ContainsKey($id) | Should -BeTrue
+        }
+    }
+
+    It 'marks only safe categories as recommended and only trash as flag-gated' {
+        foreach ($category in $script:CATEGORIES) {
+            if ($category['Id'] -eq 'trash') {
+                $category['Risk'] | Should -Be 'irreversible'
+                $category['RequiresFlag'] | Should -Be '--empty-trash'
+            } else {
+                $category['RequiresFlag'] | Should -BeNullOrEmpty
+            }
+        }
+    }
+
+    It 'limits every known app and browser to cache folder names' {
+        $allowed = @('Cache', 'Code Cache', 'GPUCache', 'CachedData', 'cache2', 'startupCache')
+        foreach ($name in $script:APP_CACHE_DIR_NAMES) { $allowed | Should -Contain $name }
+        foreach ($browser in $script:BROWSERS) {
+            foreach ($name in $browser['CacheNames']) { $allowed | Should -Contain $name }
+        }
+        foreach ($app in $script:KNOWN_APP_CACHES) {
+            foreach ($key in @('Name', 'Base', 'Path', 'Processes')) { $app.ContainsKey($key) | Should -BeTrue }
+            @('Home', 'Local', 'Roaming') | Should -Contain $app['Base']
+        }
+    }
+
+    It 'uses exactly the canonical result error codes shared with macOS' {
+        $expected = @{
+            cleaned = ''; skipped_running = 'APP_RUNNING'; skipped_no_permission = 'PERMISSION_DENIED'
+            partial = 'SOME_ITEMS_REMAIN'; not_found = 'NOT_FOUND'; unavailable = 'TOOL_UNAVAILABLE'; failed = 'INTERNAL'
+        }
+        foreach ($status in $expected.Keys) {
+            [string](Get-CleanState -Status $status).ErrorCode | Should -BeExactly $expected[$status]
+        }
+        (Get-CleanState -Status 'unavailable' -ErrorCode 'CUSTOM_LOCATION').ErrorCode | Should -BeExactly 'CUSTOM_LOCATION'
+        (Get-DeleteState -FreedBytes 5 -Deleted 1 -Failed 0 -Refused 0).Status | Should -Be 'cleaned'
+        (Get-DeleteState -FreedBytes 0 -Deleted 0 -Failed 0 -Refused 0).ErrorCode | Should -BeExactly 'NOT_FOUND'
+        (Get-DeleteState -FreedBytes 5 -Deleted 1 -Failed 1 -Refused 0).ErrorCode | Should -BeExactly 'SOME_ITEMS_REMAIN'
+        (Get-DeleteState -FreedBytes 0 -Deleted 0 -Failed 1 -Refused 0).ErrorCode | Should -BeExactly 'PERMISSION_DENIED'
+        (Get-DeleteState -FreedBytes 0 -Deleted 0 -Failed 0 -Refused 1).ErrorCode | Should -BeExactly 'GUARD_REFUSED'
+        $known = @(
+            'APP_RUNNING', 'PERMISSION_DENIED', 'SOME_ITEMS_REMAIN', 'NOT_FOUND', 'TOOL_UNAVAILABLE', 'CUSTOM_LOCATION',
+            'TOOL_FAILED', 'GUARD_REFUSED', 'INTERNAL'
+        )
+        $pattern = "-ErrorCode '([A-Z_]+)'"
+        foreach ($file in $script:sourceFiles) {
+            foreach ($found in [regex]::Matches([System.IO.File]::ReadAllText($file), $pattern)) {
+                $known | Should -Contain $found.Groups[1].Value
+            }
+        }
+    }
+
+    It 'never treats LocalCache of a Store app as cache' {
+        ($script:STORE_APP_CACHE_SUBPATHS -join ',') | Should -Be 'TempState,AC\INetCache'
+    }
+
+    It 'defines a default location, a fallback rule and a size rule for every tool cache' {
+        foreach ($id in $script:TOOL_CATEGORIES.Keys) {
+            $spec = $script:TOOL_CATEGORIES[$id]
+            foreach ($key in @('Tool', 'DirArguments', 'CleanArguments', 'DefaultBase', 'DefaultPath', 'SubPath', 'FallbackDelete', 'SizeUnknown')) {
+                $spec.ContainsKey($key) | Should -BeTrue
+            }
+            $spec['DefaultPath'] | Should -Not -BeNullOrEmpty
+        }
+        $script:TOOL_CATEGORIES['pnpm-store']['SizeUnknown'] | Should -BeTrue
+        $script:TOOL_CATEGORIES['pnpm-store']['FallbackDelete'] | Should -BeFalse
+    }
+
+    It 'quotes tool arguments only when needed and routes batch shims through cmd.exe' {
+        ConvertTo-ToolArgument -Value 'cache' | Should -BeExactly 'cache'
+        ConvertTo-ToolArgument -Value 'two words' | Should -BeExactly '"two words"'
+        $batch = Get-ToolStartInfo -Path 'C:\zqtools\npm.cmd' -Arguments @('cache', 'clean', '--force') -WorkingDirectory 'C:\zqstate'
+        $batch.FileName | Should -Match 'cmd\.exe$'
+        $batch.Arguments | Should -BeExactly '/d /s /c ""C:\zqtools\npm.cmd" cache clean --force"'
+        $direct = Get-ToolStartInfo -Path 'C:\zqtools\go.exe' -Arguments @('env', 'GOCACHE') -WorkingDirectory 'C:\zqstate'
+        $direct.FileName | Should -BeExactly 'C:\zqtools\go.exe'
+        $direct.Arguments | Should -BeExactly 'env GOCACHE'
+        $direct.WorkingDirectory | Should -BeExactly 'C:\zqstate'
+        $direct.RedirectStandardInput | Should -BeTrue
+        $direct.RedirectStandardError | Should -BeTrue
+        $direct.UseShellExecute | Should -BeFalse
+    }
+
+    It 'has a static message for every error code' {
+        $codes = @(
+            'USAGE', 'UNKNOWN_CATEGORY', 'TOKEN_MISSING', 'TOKEN_INVALID', 'TOKEN_EXPIRED', 'CATEGORY_NOT_IN_SCAN',
+            'TRASH_FLAG_REQUIRED', 'DEEP_SCAN_REQUIRED', 'INVALID_ARGUMENT', 'UNSUPPORTED_PLATFORM', 'INTERNAL'
+        )
+        foreach ($code in $codes) {
+            $script:ERROR_MESSAGES[$code] | Should -Not -BeNullOrEmpty
+            $script:ERROR_MESSAGES[$code] | Should -Not -Match '[\\/]'
+        }
+        Get-FailureCode -Message 'anything unexpected' | Should -Be 'INTERNAL'
+        Get-ExitCode -Code 'USAGE' | Should -Be 2
+        Get-ExitCode -Code 'TOKEN_EXPIRED' | Should -Be 1
+    }
+
+    It 'parses the reclaimed space that docker reports: <Line>' -ForEach @(
+        @{ Line = 'Total reclaimed space: 0B'; Expected = 0 }
+        @{ Line = 'Total reclaimed space: 512B'; Expected = 512 }
+        @{ Line = 'Total reclaimed space: 1.5kB'; Expected = 1500 }
+        @{ Line = 'Total reclaimed space: 2.25MB'; Expected = 2250000 }
+        @{ Line = 'Total reclaimed space: 3GB'; Expected = 3000000000 }
+        @{ Line = 'nothing useful'; Expected = 0 }
+    ) {
+        ConvertFrom-DockerReclaimed -Lines @('Deleted Images:', $Line) | Should -Be $Expected
+    }
+}
+
+Describe 'direct invocation' {
+    BeforeAll {
+        $script:powershellExe = Join-Path -Path $PSHOME -ChildPath 'powershell.exe'
+    }
+
+    BeforeEach {
+        Set-StrictMode -Version Latest
+    }
+
+    It 'prints one JSON line and exits 0 for --version' {
+        if (-not (Test-Path -LiteralPath $script:powershellExe)) {
+            Set-ItResult -Skipped -Because 'Windows PowerShell is not available here'
+            return
+        }
+
+        $output = @(& $script:powershellExe -NoProfile -ExecutionPolicy Bypass -File $script:entryScript --version)
+
+        $LASTEXITCODE | Should -Be 0
+        $output.Count | Should -Be 1
+        (ConvertFrom-Json -InputObject ([string]$output[0])).command | Should -Be 'version'
+    }
+
+    It 'prints a JSON usage error and exits 2 without a command' {
+        if (-not (Test-Path -LiteralPath $script:powershellExe)) {
+            Set-ItResult -Skipped -Because 'Windows PowerShell is not available here'
+            return
+        }
+
+        $output = @(& $script:powershellExe -NoProfile -ExecutionPolicy Bypass -File $script:entryScript)
+
+        $LASTEXITCODE | Should -Be 2
+        $output.Count | Should -Be 1
+        (ConvertFrom-Json -InputObject ([string]$output[0])).error.code | Should -Be 'USAGE'
+    }
+
+    It 'exits 1 with a JSON error for a clean without a matching scan' {
+        if (-not (Test-Path -LiteralPath $script:powershellExe)) {
+            Set-ItResult -Skipped -Because 'Windows PowerShell is not available here'
+            return
+        }
+        $arguments = @('clean', '--token', 'not-a-token', '--categories', 'temp-files,crash-dumps')
+
+        $output = @(& $script:powershellExe -NoProfile -ExecutionPolicy Bypass -File $script:entryScript @arguments)
+
+        $LASTEXITCODE | Should -Be 1
+        (ConvertFrom-Json -InputObject ([string]$output[0])).error.code | Should -Be 'TOKEN_INVALID'
+    }
+}
