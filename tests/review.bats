@@ -237,6 +237,35 @@ not_listed() {
   assert_private "${FIXTURE_NAMES[@]}" Private locked-big
 }
 
+@test "every group reports status ok and Downloads is readable" {
+  review_for_token
+  assert_json_schema review
+  [ "$(json get downloads_readable)" = "true" ]
+  [ "$(json get groups.0.status)" = "ok" ]
+  [ "$(json get groups.1.status)" = "ok" ]
+}
+
+@test "a Downloads folder that cannot be listed is reported before the user starts ticking" {
+  chmod 000 "$HOME_DIR/Downloads"
+  review_for_token
+  assert_json_schema review
+  [ "$(json get downloads_readable)" = "false" ]
+  [ "$(json get skipped_no_permission)" = "true" ]
+  [ "$(json get groups.0.status)" = "ok" ]
+  [ "$(json get groups.1.status)" = "skipped_no_permission" ]
+  [ "$(json get groups.1.item_count)" = "0" ]
+  [ "$(json get total_item_count)" = "2" ]
+}
+
+@test "no Downloads folder reports downloads_readable null" {
+  /bin/rm -rf "$HOME_DIR/Downloads"
+  review_for_token
+  assert_json_schema review
+  [ "$(json get downloads_readable)" = "null" ]
+  [ "$(json get groups.1.status)" = "ok" ]
+  [ "$(json get groups.1.item_count)" = "0" ]
+}
+
 @test "size and age options are validated" {
   local bad
   for bad in 9 0 abc -5 1.5 "" 99999999; do

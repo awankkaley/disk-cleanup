@@ -250,6 +250,20 @@ Desktop.
 - Click **Don't Allow** to leave it out. The review still works for the rest.
 - To change your answer later: System Settings > Privacy & Security > Files and Folders.
 
+**Downloads is the one folder the review cannot do without.** The page saves your choice there, so
+if the app is not allowed into Downloads, the assistant cannot read what you ticked and cannot
+finish. The assistant warns you before you start ticking. To fix it, open System Settings >
+Privacy & Security > Files and Folders, find the app you use the assistant in (for example
+Terminal, Claude or Cursor), and turn on **Downloads Folder** and **Desktop Folder**. Then tell the
+assistant to try again; the review stays valid for an hour.
+
+The first time files are moved to the Trash, a second message appears: **"Terminal" wants access to
+control "Finder"** (again with the name of your app). Click **OK**. The files are then moved by
+Finder, so you can get any of them back: open the Trash, right-click the file and choose **Put
+Back**. If you click **Don't Allow**, the files still go to the Trash, but you have to drag them
+back to their folder yourself. To change this later: System Settings > Privacy & Security >
+Automation.
+
 If the page does not open by itself, the assistant tells you where it is so you can open it yourself:
 `~/Library/Application Support/disk-cleanup/review.html` on macOS (in Finder: Go > Go to Folder, then
 paste the folder part), or `%LOCALAPPDATA%\disk-cleanup\review.html` on Windows (paste it into the

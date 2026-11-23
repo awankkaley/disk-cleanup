@@ -258,6 +258,20 @@ Documents dan Desktop.
 - Klik **Don't Allow** kalau tidak. Review tetap jalan untuk folder lainnya.
 - Mau mengubah jawabanmu nanti: System Settings > Privacy & Security > Files and Folders.
 
+**Folder Downloads wajib diizinkan.** Halaman review menyimpan pilihanmu di sana, jadi kalau aplikasinya
+tidak boleh membuka Downloads, asisten tidak bisa membaca apa yang kamu centang dan review tidak bisa
+diselesaikan. Asisten akan mengingatkan sebelum kamu mulai mencentang. Cara membetulkannya: buka
+System Settings > Privacy & Security > Files and Folders, cari aplikasi tempat kamu memakai asisten
+(misalnya Terminal, Claude, atau Cursor), lalu nyalakan **Downloads Folder** dan **Desktop Folder**.
+Setelah itu minta asisten mencoba lagi; review-nya masih berlaku selama satu jam.
+
+Saat pertama kali file dipindahkan ke Trash, akan muncul pesan kedua: **"Terminal" wants access to
+control "Finder"** (namanya lagi-lagi mengikuti aplikasimu). Klik **OK** (izinkan). Dengan begitu
+file dipindahkan lewat Finder, jadi kamu bisa mengembalikannya kapan saja: buka Trash, klik kanan
+filenya, lalu pilih **Put Back**. Kalau kamu klik **Don't Allow**, file tetap masuk ke Trash, tapi
+harus kamu seret sendiri kembali ke foldernya. Mau mengubahnya nanti: System Settings > Privacy &
+Security > Automation.
+
 Kalau halamannya tidak terbuka sendiri, asisten akan memberi tahu lokasinya supaya bisa kamu buka
 sendiri: `~/Library/Application Support/disk-cleanup/review.html` di macOS (di Finder: Go > Go to
 Folder, lalu tempel bagian foldernya), atau `%LOCALAPPDATA%\disk-cleanup\review.html` di Windows

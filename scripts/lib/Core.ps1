@@ -38,6 +38,7 @@ $script:ERROR_MESSAGES = @{
     'INVALID_ARGUMENT'     = 'A flag value is not valid. Run with --help to see the accepted values.'
     'UNSUPPORTED_PLATFORM' = 'This script supports Windows only. Use cleanup.sh on macOS.'
     'SELECTION_NOT_FOUND'  = 'No saved selection was found in the Downloads or Desktop folder. Ask the user to press Done choosing in the review page again and, if the browser asks where to save, to choose Downloads.'
+    'SELECTION_NO_PERMISSION' = 'This app is not allowed to look in your Downloads or Desktop folder, so the saved choice cannot be read. Ask the user to allow the app they use the assistant in (for example Windows Terminal, Claude or Cursor) to read their Downloads and Desktop folders, then try again. If Windows Security reported a blocked app, allow it under Virus and threat protection > Ransomware protection > Allow an app through Controlled folder access. The review stays valid for an hour.'
     'SELECTION_INVALID'    = 'The saved selection is damaged or belongs to another review. Ask the user to press Done choosing in the latest review page again.'
     'INTERNAL'             = 'Unexpected internal error. Nothing further was changed.'
 }

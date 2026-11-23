@@ -26,18 +26,24 @@ function Get-SelectionFolderList {
 }
 
 # Regular, non-link files directly inside the selection folders with a selection
-# file name, newest first across all of them.
+# file name, newest first across all of them (Files). Denied is true when a folder
+# that exists could not be listed (access denied, Controlled folder access).
 function Get-SelectionCandidateList {
     param($Roots)
+    $denied = $false
     $files = @(foreach ($folder in @(Get-SelectionFolderList -Roots $Roots)) {
             $listing = Get-ChildEntryList -Path $folder
+            if ($listing.Failed) { $denied = $true }
             foreach ($entry in $listing.Entries) {
                 if (-not ($entry -is [System.IO.FileInfo])) { continue }
                 if (Test-ReparsePoint -Info $entry) { continue }
                 if (Test-SelectionFileName -Name $entry.Name) { $entry }
             }
         })
-    return @($files | Sort-Object -Property LastWriteTimeUtc -Descending)
+    return [pscustomobject]@{
+        Files  = @($files | Sort-Object -Property LastWriteTimeUtc -Descending)
+        Denied = $denied
+    }
 }
 
 # Reads at most SELECTION_MAX_BYTES + 1 bytes, so a file that grows while it is
@@ -98,14 +104,18 @@ function Test-SelectionOfReview {
 }
 
 # The newest well-formed selection file that carries this review's token and secret.
+# When none is usable and a folder could not be listed, the user's file may be in
+# that folder, so the error names the missing permission instead.
 function Find-ReviewSelection {
     param($Roots, $Manifest)
-    $candidates = @(Get-SelectionCandidateList -Roots $Roots)
-    if ($candidates.Count -eq 0) { Invoke-CleanupFailure -Code 'SELECTION_NOT_FOUND' }
+    $found = Get-SelectionCandidateList -Roots $Roots
+    $candidates = @($found.Files)
     foreach ($candidate in $candidates) {
         $selection = Read-SelectionFile -File $candidate
         if (Test-SelectionOfReview -Selection $selection -Manifest $Manifest) { return $selection }
     }
+    if ($found.Denied) { Invoke-CleanupFailure -Code 'SELECTION_NO_PERMISSION' }
+    if ($candidates.Count -eq 0) { Invoke-CleanupFailure -Code 'SELECTION_NOT_FOUND' }
     Invoke-CleanupFailure -Code 'SELECTION_INVALID'
 }
 
@@ -203,7 +213,7 @@ function Clear-ReviewLeftover {
     $paths = New-Object -TypeName 'System.Collections.Generic.List[string]'
     $reportPath = Get-ReviewReportPath
     if ([System.IO.File]::Exists($reportPath)) { $paths.Add($reportPath) }
-    foreach ($candidate in @(Get-SelectionCandidateList -Roots $Roots)) {
+    foreach ($candidate in @((Get-SelectionCandidateList -Roots $Roots).Files)) {
         $selection = Read-SelectionFile -File $candidate
         if (Test-SelectionOfReview -Selection $selection -Manifest $Manifest) { $paths.Add([string]$candidate.FullName) }
     }

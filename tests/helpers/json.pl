@@ -142,7 +142,7 @@ sub schema_suggestion {
 sub schema_review {
   my @keys = qw(schema_version command platform token token_expires_in_seconds groups
     total_item_count total_size_bytes truncated report_opened report_location_hint
-    selection_file_hint);
+    selection_file_hint downloads_readable);
   push @keys, 'skipped_no_permission' if exists $doc->{skipped_no_permission};
   expect_keys('review', $doc, @keys);
   check($doc->{schema_version} == 1, 'schema_version');
@@ -153,6 +153,10 @@ sub schema_review {
   check(JSON::PP::is_bool($doc->{$_}), "$_ type") for qw(truncated report_opened);
   check(show($doc->{skipped_no_permission}) eq 'true', 'skipped_no_permission value')
     if exists $doc->{skipped_no_permission};
+  my $readable = $doc->{downloads_readable};
+  check(!defined $readable || JSON::PP::is_bool($readable), 'downloads_readable type');
+  check(exists $doc->{skipped_no_permission}, 'skipped_no_permission when Downloads is unreadable')
+    if defined $readable && !$readable;
   check($doc->{report_location_hint} eq '~/Library/Application Support/disk-cleanup/review.html',
     'report_location_hint');
   check($doc->{selection_file_hint} eq 'Downloads/disk-cleanup-selection.json', 'selection_file_hint');
@@ -160,7 +164,9 @@ sub schema_review {
   check(join(',', map { $_->{id} } @{ $doc->{groups} }) eq 'large-files,old-downloads', 'group ids');
   my ($count, $bytes) = (0, 0);
   for my $group (@{ $doc->{groups} }) {
-    expect_keys('group', $group, qw(id label item_count size_bytes));
+    expect_keys('group', $group, qw(id label item_count size_bytes status));
+    my $denied = $group->{id} eq 'old-downloads' && defined $readable && !$readable;
+    check($group->{status} eq ($denied ? 'skipped_no_permission' : 'ok'), 'group status');
     check(($labels{ $group->{id} } // '') eq $group->{label}, 'group label');
     check(is_int($group->{$_}), "group.$_") for qw(item_count size_bytes);
     $count += $group->{item_count};
@@ -198,7 +204,7 @@ sub schema_error {
   check(one_of($doc->{error}{code}, qw(USAGE UNKNOWN_CATEGORY TOKEN_MISSING
     TOKEN_INVALID TOKEN_EXPIRED CATEGORY_NOT_IN_SCAN TRASH_FLAG_REQUIRED
     DEEP_SCAN_REQUIRED INVALID_ARGUMENT UNSUPPORTED_PLATFORM INTERNAL
-    SELECTION_NOT_FOUND SELECTION_INVALID)), 'error code');
+    SELECTION_NOT_FOUND SELECTION_INVALID SELECTION_NO_PERMISSION)), 'error code');
   check(is_text($doc->{error}{message}), 'error message');
 }
 

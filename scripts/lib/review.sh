@@ -345,26 +345,44 @@ open_report() {
   run_tool "$REVIEW_OPEN_SECONDS" open "$REVIEW_REPORT" > /dev/null
 }
 
+# Prints true or false for a Downloads folder that exists, null when there is
+# no such folder. False usually means the app lacks the system's permission.
+review_downloads_readable() {
+  local folder="$HOME_PHYS/$DOWNLOADS_FOLDER"
+  if ! is_real_dir "$folder"; then
+    printf 'null'
+  elif can_list "$folder"; then
+    printf 'true'
+  else
+    printf 'false'
+  fi
+}
+
+# review_groups_json DOWNLOADS_READABLE
 review_groups_json() {
-  printf '"groups":[{"id":"%s","label":"%s","item_count":%s,"size_bytes":%s},' \
+  local downloads_status=ok
+  [ "$1" != false ] || downloads_status=skipped_no_permission
+  printf '"groups":[{"id":"%s","label":"%s","item_count":%s,"size_bytes":%s,"status":"ok"},' \
     "$REVIEW_GROUP_LARGE" "$REVIEW_LABEL_LARGE" "${REVIEW_SUMMARY[2]}" "${REVIEW_SUMMARY[3]}"
-  printf '{"id":"%s","label":"%s","item_count":%s,"size_bytes":%s}],' \
-    "$REVIEW_GROUP_DOWNLOADS" "$REVIEW_LABEL_DOWNLOADS" "${REVIEW_SUMMARY[4]}" "${REVIEW_SUMMARY[5]}"
+  printf '{"id":"%s","label":"%s","item_count":%s,"size_bytes":%s,"status":"%s"}],' \
+    "$REVIEW_GROUP_DOWNLOADS" "$REVIEW_LABEL_DOWNLOADS" "${REVIEW_SUMMARY[4]}" "${REVIEW_SUMMARY[5]}" \
+    "$downloads_status"
   printf '"total_item_count":%s,"total_size_bytes":%s,' \
     "$((REVIEW_SUMMARY[2] + REVIEW_SUMMARY[4]))" "$((REVIEW_SUMMARY[3] + REVIEW_SUMMARY[5]))"
 }
 
 # emit_review TOKEN OPENED
 emit_review() {
-  local truncated=0 denied=""
+  local truncated=0 denied="" readable
+  readable=$(review_downloads_readable)
   [ "${REVIEW_SUMMARY[0]}" -le "$REVIEW_MAX_ITEMS" ] || truncated=1
-  [ "${REVIEW_SUMMARY[1]}" = 0 ] || denied=',"skipped_no_permission":true'
+  [ "${REVIEW_SUMMARY[1]}" = 0 ] && [ "$readable" != false ] || denied=',"skipped_no_permission":true'
   emit_document "$(
     printf '{"schema_version":%d,"command":"review","platform":"%s","token":"%s","token_expires_in_seconds":%d,' \
       "$SCHEMA_VERSION" "$PLATFORM" "$1" "$REVIEW_TOKEN_TTL_SECONDS"
-    review_groups_json
-    printf '"truncated":%s,"report_opened":%s,"report_location_hint":"%s","selection_file_hint":"%s"%s}' \
-      "$(json_bool "$truncated")" "$(json_bool "$2")" "$REVIEW_REPORT_HINT" "$REVIEW_SELECTION_HINT" "$denied"
+    review_groups_json "$readable"
+    printf '"truncated":%s,"report_opened":%s,"report_location_hint":"%s","selection_file_hint":"%s","downloads_readable":%s%s}' \
+      "$(json_bool "$truncated")" "$(json_bool "$2")" "$REVIEW_REPORT_HINT" "$REVIEW_SELECTION_HINT" "$readable" "$denied"
   )"
 }
 

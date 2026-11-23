@@ -61,13 +61,19 @@ selection_matches() {
 # Downloads or the Desktop and loads its ids. A folder that is a symlink is not
 # searched. SELECTION_FILES collects every file saved for this review in both
 # folders. Returns 1 when no selection file exists, 2 when none of them is
-# usable; files that do not match are left where they are.
+# usable and 3 when no usable one was found while a folder that exists could
+# not be listed (the app lacks the system's permission to look in it, so the
+# user's file may be there); files that do not match are left where they are.
 selection_locate() {
-  local token=$1 secret=$2 folder file mtime newest=-1 ids="" named=0
+  local token=$1 secret=$2 folder file mtime newest=-1 ids="" named=0 denied=0
   SELECTION_FILES=()
   for folder in "${SELECTION_FOLDERS[@]}"; do
     folder="$HOME_PHYS/$folder"
-    if ! is_real_dir "$folder" || ! can_list "$folder"; then continue; fi
+    is_real_dir "$folder" || continue
+    if ! can_list "$folder"; then
+      denied=1
+      continue
+    fi
     while IFS= read -r -d '' file; do
       is_selection_name "${file##*/}" || continue
       named=1
@@ -80,6 +86,7 @@ selection_locate() {
     done < <(find -P "$folder" -xdev -mindepth 1 -maxdepth 1 -type f \
       -name "$SELECTION_STEM*$SELECTION_SUFFIX" -print0 2> /dev/null)
   done
+  if [ "$newest" -lt 0 ] && [ "$denied" = 1 ]; then return 3; fi
   [ "$named" = 1 ] || return 1
   [ "$newest" -ge 0 ] || return 2
   SELECTION_IDS=$ids

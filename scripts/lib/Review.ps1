@@ -458,9 +458,20 @@ function Read-ReviewManifest {
     return $manifest
 }
 
+# $true or $false for a Downloads folder that exists, $null when there is none (or
+# it is a link). $false usually means the app lacks permission to read it.
+function Get-ReviewDownloadsReadable {
+    param($Roots)
+    $folder = [string]$Roots.Downloads
+    if ([string]::IsNullOrEmpty($folder)) { return $null }
+    return (-not (Get-ChildEntryList -Path $folder).Failed)
+}
+
 function Get-ReviewGroupSummary {
-    param([object[]]$Items = @())
+    param([object[]]$Items = @(), [bool]$DownloadsDenied = $false)
     foreach ($group in $script:REVIEW_GROUPS) {
+        $status = 'ok'
+        if ($DownloadsDenied -and ($group['Id'] -eq $script:REVIEW_GROUP_DOWNLOADS)) { $status = 'skipped_no_permission' }
         $count = 0
         $bytes = [long]0
         foreach ($item in $Items) {
@@ -468,13 +479,14 @@ function Get-ReviewGroupSummary {
             $count += 1
             $bytes += [long]$item.Size
         }
-        [ordered]@{ id = $group['Id']; label = $group['Label']; item_count = $count; size_bytes = $bytes }
+        [ordered]@{ id = $group['Id']; label = $group['Label']; item_count = $count; size_bytes = $bytes; status = $status }
     }
 }
 
 function Get-ReviewDocument {
-    param([string]$Token, $Selection, [bool]$Denied, [bool]$Opened)
-    $groups = @(Get-ReviewGroupSummary -Items $Selection.Items)
+    param([string]$Token, $Selection, [bool]$Denied, [bool]$Opened, $DownloadsReadable)
+    $downloadsDenied = ($DownloadsReadable -is [bool]) -and (-not $DownloadsReadable)
+    $groups = @(Get-ReviewGroupSummary -Items $Selection.Items -DownloadsDenied $downloadsDenied)
     $totalCount = 0
     $totalBytes = [long]0
     foreach ($group in $groups) {
@@ -494,8 +506,9 @@ function Get-ReviewDocument {
         report_opened            = $Opened
         report_location_hint     = $script:REVIEW_REPORT_HINT
         selection_file_hint      = $script:REVIEW_SELECTION_HINT
+        downloads_readable       = $DownloadsReadable
     }
-    if ($Denied) { $document['skipped_no_permission'] = $true }
+    if ($Denied -or $downloadsDenied) { $document['skipped_no_permission'] = $true }
     return $document
 }
 
@@ -516,5 +529,6 @@ function Invoke-ReviewCommand {
     Write-ReviewStateFile -Path $reportPath -Text $report
     Write-ReviewStateFile -Path (Get-ReviewManifestPath) -Text $manifest
     $opened = ((Open-ReviewReport -Path $reportPath) -eq $true)
-    return (Get-ReviewDocument -Token $token -Selection $selection -Denied $walk.Denied -Opened $opened)
+    $readable = Get-ReviewDownloadsReadable -Roots $roots
+    return (Get-ReviewDocument -Token $token -Selection $selection -Denied $walk.Denied -Opened $opened -DownloadsReadable $readable)
 }

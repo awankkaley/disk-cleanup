@@ -615,6 +615,46 @@ repoint_manifest() {
   assert_exists "$OUTSIDE/desk-selection"
 }
 
+# --- a folder the app may not look into (macOS privacy settings) ---
+
+@test "a selection in a Downloads folder that cannot be listed reports SELECTION_NO_PERMISSION" {
+  write_selection "$TOKEN" "$VIDEO_ID"
+  chmod 000 "$HOME_DIR/Downloads"
+  apply_review
+  assert_error SELECTION_NO_PERMISSION
+  [[ "$(json get error.message)" == *"Privacy & Security"* ]]
+  [[ "$output" != *"$HOME_DIR"* ]]
+  chmod 755 "$HOME_DIR/Downloads"
+  assert_exists "$VIDEO"
+  assert_exists "$MANIFEST"
+  assert_exists "$HOME_DIR/Downloads/$SELECTION_NAME"
+  assert_missing "$TRASH/walrus-video.mov"
+  apply_review
+  [ "$status" -eq 0 ]
+  [ "$(count trashed_count)" = "1" ]
+  trash_holds "walrus-video.mov"
+}
+
+@test "an unlistable Desktop with no selection anywhere reports SELECTION_NO_PERMISSION" {
+  mkdir -p "$HOME_DIR/Desktop"
+  chmod 000 "$HOME_DIR/Desktop"
+  apply_review
+  assert_error SELECTION_NO_PERMISSION
+  assert_exists "$VIDEO"
+  assert_exists "$MANIFEST"
+}
+
+@test "an unlistable Desktop does not stop a selection saved in Downloads" {
+  mkdir -p "$HOME_DIR/Desktop"
+  chmod 000 "$HOME_DIR/Desktop"
+  write_selection "$TOKEN" "$VIDEO_ID"
+  apply_review
+  [ "$status" -eq 0 ]
+  [ "$(count trashed_count)" = "1" ]
+  trash_holds "walrus-video.mov"
+  assert_missing "$HOME_DIR/Downloads/$SELECTION_NAME"
+}
+
 @test "a folder that cannot be modified counts as no permission and keeps the file" {
   chmod 555 "$HOME_DIR/Movies/trip"
   write_selection "$TOKEN" "$VIDEO_ID,$ARCHIVE_ID"

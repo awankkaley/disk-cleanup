@@ -305,7 +305,7 @@ Describe 'category catalog' {
         $codes = @(
             'USAGE', 'UNKNOWN_CATEGORY', 'TOKEN_MISSING', 'TOKEN_INVALID', 'TOKEN_EXPIRED', 'CATEGORY_NOT_IN_SCAN',
             'TRASH_FLAG_REQUIRED', 'DEEP_SCAN_REQUIRED', 'INVALID_ARGUMENT', 'UNSUPPORTED_PLATFORM', 'INTERNAL',
-            'SELECTION_NOT_FOUND', 'SELECTION_INVALID'
+            'SELECTION_NOT_FOUND', 'SELECTION_INVALID', 'SELECTION_NO_PERMISSION'
         )
         $script:ERROR_MESSAGES.Count | Should -Be $codes.Count
         foreach ($code in $codes) {

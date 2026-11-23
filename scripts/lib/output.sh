@@ -19,6 +19,7 @@ review_error_message() {
     TOKEN_INVALID) printf 'The token does not match the latest review. Run review again.' ;;
     TOKEN_EXPIRED) printf 'Run review again; the previous review is older than 60 minutes.' ;;
     SELECTION_NOT_FOUND) printf 'No saved selection was found in the Downloads or Desktop folder. Ask the user to press Done choosing in the review page again and, if the browser asks where to save, to choose Downloads.' ;;
+    SELECTION_NO_PERMISSION) printf 'This app is not allowed to look in your Downloads or Desktop folder, so the saved choice cannot be read. Ask the user to allow it: System Settings > Privacy & Security > Files and Folders, find the app they use the assistant in (for example Terminal, Claude or Cursor) and turn on Downloads Folder and Desktop Folder, then try again. The review stays valid for an hour.' ;;
     SELECTION_INVALID) printf 'The saved selection is damaged, was not saved by the report page or belongs to another review. Ask the user to press Done choosing in the latest review page again, or run review again.' ;;
     *) return 1 ;;
   esac
@@ -48,7 +49,7 @@ fail() {
     USAGE) exit_code=$EXIT_USAGE ;;
     UNKNOWN_CATEGORY | TOKEN_MISSING | TOKEN_INVALID | TOKEN_EXPIRED | CATEGORY_NOT_IN_SCAN) ;;
     TRASH_FLAG_REQUIRED | DEEP_SCAN_REQUIRED | INVALID_ARGUMENT | UNSUPPORTED_PLATFORM) ;;
-    SELECTION_NOT_FOUND | SELECTION_INVALID) ;;
+    SELECTION_NOT_FOUND | SELECTION_INVALID | SELECTION_NO_PERMISSION) ;;
     *) code=INTERNAL ;;
   esac
   emit_document "$(printf '{"schema_version":%d,"error":{"code":"%s","message":"%s"}}' \

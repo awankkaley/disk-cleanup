@@ -243,24 +243,38 @@ first, that reaches the amount.
      be put back from there until it is emptied;
    - files in a folder synced with iCloud, OneDrive, Dropbox or Google Drive also disappear from
      the cloud and their other devices.
+   If `downloads_readable` is `false`, say this FIRST, before they start ticking: the app they use
+   you in is not allowed to look in their Downloads folder, so the choice they save cannot be read.
+   On macOS: System Settings > Privacy & Security > Files and Folders, find that app (for example
+   Terminal, Claude or Cursor) and turn on Downloads Folder and Desktop Folder. On Windows: allow
+   that app to read Downloads and the Desktop (Windows Security > Virus and threat protection >
+   Ransomware protection > Allow an app through Controlled folder access, if that is what blocks
+   it). Old items in Downloads are missing from the page until then; after allowing it, a new
+   `review` lists them.
    Also: if `report_opened` is `false`, apply rule 15. If `truncated` is `true`, say the page shows
    the 500 largest items. If `skipped_no_permission` is `true`, say some folders were left out
    because the system did not allow access. If `total_item_count` is 0, say nothing that large or
    old was found and stop; there is nothing to apply.
 4. Stop and wait. Do not poll, and do not check whether the selection file exists.
-5. When the user says they are done, run `review-apply --token <token>`.
+5. When the user says they are done, run `review-apply --token <token>`. On macOS, first tell them
+   in one sentence that the first time files are moved the system may ask whether the app may
+   "control Finder", and that they should click OK so the files can be put back from the Trash.
 6. Report: how many files were moved to the Trash / Recycle Bin and their total size
    (`trashed_count`, `trashed_bytes`), and one line for each non-zero counter:
    `skipped_changed_count` (changed since the page was made, left alone), `skipped_no_permission_count`
    (the system refused), `failed_count`, `ignored_count`. Say clearly that the space is freed only
-   when the Trash / Recycle Bin is emptied, so the free space shown has not gone up yet.
+   when the Trash / Recycle Bin is emptied, so the free space shown has not gone up yet. Tell them
+   how to undo: on macOS, open the Trash, right-click an item and choose Put Back (if they did not
+   allow Finder control, they drag it back by hand); on Windows, open the Recycle Bin, right-click
+   and choose Restore.
 7. Offer the next step, without doing it: they can empty the Trash themselves, or you can do it
    through the normal flow, which is a `scan`, the table, and then the `trash` category with their
    explicit consent and `--empty-trash` (step 3 of the workflow). Remind them that this permanently
    removes everything in the Trash, not only today's files.
 
-If `review-apply` returns an error, see the error table. For `SELECTION_NOT_FOUND` and
-`SELECTION_INVALID`, never look for the file yourself: ask the user, in plain words, to press
+If `review-apply` returns an error, see the error table. For `SELECTION_NO_PERMISSION`, do not ask
+the user to press "Done choosing" again; the file is saved but the app may not read the folder.
+For `SELECTION_NOT_FOUND` and `SELECTION_INVALID`, never look for the file yourself: ask the user, in plain words, to press
 "Done choosing" in the page again (first "Change my choice" if the page says their choice is saved)
 and, if the browser asks where to save, to choose Downloads; then try once more.
 
@@ -351,13 +365,14 @@ Review output:
 | Field | Meaning |
 | --- | --- |
 | `token`, `token_expires_in_seconds` | Pass the token to `review-apply`. Expires after 3600 seconds. |
-| `groups[]` | `large-files` and `old-downloads`, each with `label`, `item_count`, `size_bytes`. |
+| `groups[]` | `large-files` and `old-downloads`, each with `label`, `item_count`, `size_bytes` and `status` (`ok`, or `skipped_no_permission` for `old-downloads` when Downloads could not be read). |
 | `total_item_count`, `total_size_bytes` | Everything listed in the page. |
 | `truncated` | `true` when more than 500 items existed; the page shows the largest 500. |
 | `report_opened` | `false` when the browser could not be started. Not an error (rule 15). |
 | `report_location_hint` | Where the page is, as a fixed text for the user. Never open it. |
 | `selection_file_hint` | Where the browser saves the selection, as a fixed text for the user. |
 | `skipped_no_permission` | Present and `true` when a folder could not be read. |
+| `downloads_readable` | `true`; `false` when the Downloads folder exists but the app may not look in it (the saved choice cannot be read, so warn the user before they tick); `null` when there is no Downloads folder. |
 
 Review-apply output: `selected_count`, `trashed_count`, `trashed_bytes`, `skipped_changed_count`,
 `skipped_no_permission_count`, `failed_count`, `ignored_count`, `disk_before.free_bytes`,
@@ -372,6 +387,7 @@ Error output (non-zero exit): `{"schema_version":1,"error":{"code":"...","messag
 | `UNKNOWN_CATEGORY` | Use only ids returned by the scan. |
 | `TOKEN_MISSING`, `TOKEN_INVALID`, `TOKEN_EXPIRED` | From `clean`: run `scan` again, show the new numbers, and re-confirm before cleaning. From `review-apply`: the review is older than 60 minutes or was already applied; nothing was moved. Offer to run `review` again; the user then ticks and saves again in the new page. |
 | `SELECTION_NOT_FOUND` | No saved selection for this review is in the Downloads folder or on the Desktop. The user has not pressed "Done choosing" yet, or the browser saved the file somewhere else. Ask them to press "Done choosing" again and, if the browser asks where to save, to choose Downloads; then run `review-apply` again. Nothing was moved. |
+| `SELECTION_NO_PERMISSION` | No usable selection was found and the Downloads folder or the Desktop could not be looked into: the app the user runs you in lacks permission, so their saved file may be there. Tell them, in plain words, to allow it. macOS: System Settings > Privacy & Security > Files and Folders, find that app (for example Terminal, Claude or Cursor) and turn on Downloads Folder and Desktop Folder. Windows: let that app read Downloads and the Desktop (Windows Security > Virus and threat protection > Ransomware protection > Allow an app through Controlled folder access). Then run `review-apply` again with the same token; the review stays valid for an hour and nothing was moved. Do not ask them to press "Done choosing" again, and never look for the file yourself. |
 | `SELECTION_INVALID` | A selection file is there but it was not saved by the page of this review (for example, saved from an older page), or the review's own files were changed. Ask the user to press "Done choosing" in the page that is open now, then run `review-apply` again. If it fails again, offer a new `review`. Never repair or write the file yourself (rule 13). Nothing was moved. |
 | `CATEGORY_NOT_IN_SCAN` | The category was not `ok` in that scan. Scan again or drop it. |
 | `TRASH_FLAG_REQUIRED` | `trash` needs `--empty-trash`. Add it only with the user's explicit consent. |

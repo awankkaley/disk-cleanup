@@ -62,6 +62,49 @@ Describe 'review-apply selection file and token' {
             $second.Data.trashed_count | Should -Be 1
         }
 
+        It 'reports SELECTION_NO_PERMISSION when Downloads cannot be listed, moves nothing and keeps the token' {
+            $mine = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:token -Ids @(5)
+            $script:lockDownloads = $true
+            Mock Get-ChildEntryList { [pscustomobject]@{ Entries = @(); Failed = $true } } -ParameterFilter { $script:lockDownloads -and ($Path -like '*\zqfixtureuser\Downloads') }
+
+            $locked = Invoke-Apply -Token $script:token
+            $script:lockDownloads = $false
+            $second = Invoke-Apply -Token $script:token
+
+            $locked.ExitCode | Should -Be 1
+            $locked.Data.error.code | Should -BeExactly 'SELECTION_NO_PERMISSION'
+            $locked.Data.error.message | Should -Match 'Downloads'
+            Assert-PrivateOutput -Json $locked.Json -Sandbox $script:sandbox
+            $second.ExitCode | Should -Be 0
+            $second.Data.trashed_count | Should -Be 1
+            Should -Invoke Send-FileToRecycleBin -Times 1 -Exactly
+            Test-Path -LiteralPath $mine | Should -BeFalse
+        }
+
+        It 'reports SELECTION_NO_PERMISSION when only the Desktop cannot be listed and nothing was found' {
+            [void][System.IO.Directory]::CreateDirectory($script:sandbox.Desktop)
+            Mock Get-ChildEntryList { [pscustomobject]@{ Entries = @(); Failed = $true } } -ParameterFilter { $Path -like '*\zqfixtureuser\Desktop' }
+
+            $run = Invoke-Apply -Token $script:token
+
+            $run.ExitCode | Should -Be 1
+            $run.Data.error.code | Should -BeExactly 'SELECTION_NO_PERMISSION'
+            Should -Invoke Send-FileToRecycleBin -Times 0 -Exactly
+            Test-Path -LiteralPath $script:sandbox.Manifest | Should -BeTrue
+        }
+
+        It 'still uses a selection in Downloads when only the Desktop cannot be listed' {
+            [void][System.IO.Directory]::CreateDirectory($script:sandbox.Desktop)
+            $mine = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:token -Ids @(5)
+            Mock Get-ChildEntryList { [pscustomobject]@{ Entries = @(); Failed = $true } } -ParameterFilter { $Path -like '*\zqfixtureuser\Desktop' }
+
+            $run = Invoke-Apply -Token $script:token
+
+            $run.ExitCode | Should -Be 0
+            $run.Data.trashed_count | Should -Be 1
+            Test-Path -LiteralPath $mine | Should -BeFalse
+        }
+
         It 'reports SELECTION_NOT_FOUND when there is no Downloads folder' {
             [System.IO.Directory]::Move($script:sandbox.Downloads, (Join-Path -Path $script:sandbox.Outside -ChildPath 'zqdownloads-gone'))
 

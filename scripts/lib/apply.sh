@@ -23,6 +23,7 @@ load_selection() {
   case $? in
     0) ;;
     1) fail SELECTION_NOT_FOUND ;;
+    3) fail SELECTION_NO_PERMISSION ;;
     *) fail SELECTION_INVALID ;;
   esac
 }

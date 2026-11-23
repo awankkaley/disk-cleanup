@@ -5,7 +5,8 @@ BeforeAll {
     $script:largeBytes = [long]34603008
     $script:reviewFields = @(
         'schema_version', 'command', 'platform', 'token', 'token_expires_in_seconds', 'groups', 'total_item_count',
-        'total_size_bytes', 'truncated', 'report_opened', 'report_location_hint', 'selection_file_hint'
+        'total_size_bytes', 'truncated', 'report_opened', 'report_location_hint', 'selection_file_hint',
+        'downloads_readable'
     )
 
     function Invoke-Review {
@@ -64,8 +65,8 @@ Describe 'review' {
         It 'reports both groups as an array of counts and totals' {
             $run = Invoke-Review
 
-            $expected = '"groups":[{"id":"large-files","label":"Large files","item_count":3,"size_bytes":34603008},' +
-                '{"id":"old-downloads","label":"Old items in Downloads","item_count":2,"size_bytes":500}]'
+            $expected = '"groups":[{"id":"large-files","label":"Large files","item_count":3,"size_bytes":34603008,"status":"ok"},' +
+                '{"id":"old-downloads","label":"Old items in Downloads","item_count":2,"size_bytes":500,"status":"ok"}]'
             $run.Json.Contains($expected) | Should -BeTrue
             $run.Json | Should -Match '"truncated":false'
             $run.Json | Should -Match '"total_item_count":5[,}]'
@@ -120,6 +121,44 @@ Describe 'review' {
             $run.Data.skipped_no_permission | Should -BeTrue
             $run.Data.total_item_count | Should -Be 5
             Assert-PrivateOutput -Json $run.Json -Sandbox $script:sandbox
+        }
+    }
+
+    Context 'a Downloads folder the app may not read' {
+        It 'reports downloads_readable true and status ok for every group when Downloads can be listed' {
+            $run = Invoke-Review
+
+            $run.ExitCode | Should -Be 0
+            $run.Data.downloads_readable | Should -BeTrue
+            (Get-ReviewGroup -Data $run.Data -Id 'large-files').status | Should -BeExactly 'ok'
+            (Get-ReviewGroup -Data $run.Data -Id 'old-downloads').status | Should -BeExactly 'ok'
+            $run.Json | Should -Match '"downloads_readable":true'
+        }
+
+        It 'reports downloads_readable false and skips old-downloads when Downloads cannot be listed' {
+            Mock Get-ChildEntryList { [pscustomobject]@{ Entries = @(); Failed = $true } } -ParameterFilter { $Path -like '*\zqfixtureuser\Downloads' }
+
+            $run = Invoke-Review
+
+            $run.ExitCode | Should -Be 0
+            $run.Json | Should -Match '"downloads_readable":false'
+            $run.Data.skipped_no_permission | Should -BeTrue
+            $downloads = Get-ReviewGroup -Data $run.Data -Id 'old-downloads'
+            $downloads.status | Should -BeExactly 'skipped_no_permission'
+            $downloads.item_count | Should -Be 0
+            (Get-ReviewGroup -Data $run.Data -Id 'large-files').status | Should -BeExactly 'ok'
+            Assert-PrivateOutput -Json $run.Json -Sandbox $script:sandbox
+        }
+
+        It 'reports downloads_readable null when there is no Downloads folder' {
+            [System.IO.Directory]::Move($script:sandbox.Downloads, (Join-Path -Path $script:sandbox.Outside -ChildPath 'zqdownloads-gone'))
+
+            $run = Invoke-Review
+
+            $run.ExitCode | Should -Be 0
+            $run.Json | Should -Match '"downloads_readable":null'
+            (Get-ReviewGroup -Data $run.Data -Id 'old-downloads').status | Should -BeExactly 'ok'
+            (Get-ReviewGroup -Data $run.Data -Id 'old-downloads').item_count | Should -Be 0
         }
     }
 
