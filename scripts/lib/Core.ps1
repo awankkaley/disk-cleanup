@@ -1,5 +1,5 @@
 $script:SCHEMA_VERSION = 1
-$script:TOOL_VERSION = '1.0.0'
+$script:TOOL_VERSION = '1.1.0'
 $script:PLATFORM_NAME = 'windows'
 $script:WINDOWS_OS_NAME = 'Windows_NT'
 $script:JSON_DEPTH = 8

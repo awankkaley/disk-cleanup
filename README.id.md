@@ -5,7 +5,8 @@
 Agent Skill yang membuat asisten AI kamu (Claude Code, Codex CLI, Cursor, Gemini CLI, dan lainnya) bisa
 mengosongkan ruang penyimpanan di macOS dan Windows tanpa pernah melihat file kamu.
 
-Kamu cukup bilang "laptop saya penuh". Asisten menjalankan satu skrip, menampilkan tabel berisi apa saja
+Kamu cukup ketik `/disk-cleanup` atau bilang "laptop saya penuh". Asisten menjalankan satu skrip,
+menampilkan tabel berisi apa saja
 yang bisa dibersihkan beserta ukurannya, menanyakan mana yang kamu mau, lalu membersihkan yang kamu
 pilih saja.
 
@@ -91,39 +92,47 @@ npx skills add awankkaley/disk-cleanup -g
 `-g` memasangnya untuk akun kamu sehingga bisa dipakai di semua proyek. Tambahkan `-a claude-code`
 (atau `codex`, `cursor`, `gemini-cli`, ...) untuk memilih agent, atau biarkan CLI yang bertanya.
 
+Skills CLI memasang skill-nya saja, dan itu sudah cukup untuk kebanyakan agent. Satu-satunya yang tidak
+ikut terpasang adalah file perintah `/disk-cleanup` untuk Gemini CLI dan OpenCode (lihat "Cara
+memakai"). Di dua agent itu, cukup minta dengan bahasa sehari-hari, atau pakai installer satu baris.
+
 ### 2. Installer satu baris
 
 macOS (Terminal):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.0.0/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.1.0/install.sh | bash
 ```
 
 Windows (PowerShell):
 
 ```powershell
-irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.0.0/install.ps1 | iex
+irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.1.0/install.ps1 | iex
 ```
 
-Installer mengunduh rilis v1.0.0, mencari agent AI yang ada di komputermu, lalu menyalin tiga hal ke
-folder skills tiap agent: `SKILL.md`, `scripts/`, dan `LICENSE`. Installer tidak menjalankan
-pembersihan, tidak butuh hak administrator, dan tidak menulis ke tempat lain.
+Installer mengunduh rilis v1.1.0, mencari agent AI yang ada di komputermu, lalu menyalin tiga hal ke
+folder skills tiap agent: `SKILL.md`, `scripts/`, dan `LICENSE`. Khusus Gemini CLI dan OpenCode, yang
+tidak bisa memanggil skill lewat perintah garis miring, installer juga menambahkan satu file perintah
+kecil (`~/.gemini/commands/disk-cleanup.toml`, `~/.config/opencode/commands/disk-cleanup.md`) yang
+isinya hanya meneruskan ke skill. Kalau kamu sudah punya file perintah sendiri dengan nama yang sama,
+installer tidak menyentuhnya dan memberi tahu kamu. Installer tidak menjalankan pembersihan, tidak
+butuh hak administrator, dan tidak menulis ke tempat lain.
 
 Untuk memasang hanya ke agent tertentu:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.0.0/install.sh | bash -s -- --agent claude,cursor
+curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.1.0/install.sh | bash -s -- --agent claude,cursor
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.0.0/install.ps1))) -Agent claude,cursor
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.1.0/install.ps1))) -Agent claude,cursor
 ```
 
 Nama agent: `claude`, `codex`, `cursor`, `gemini`, `copilot`, `opencode`, `amp`, `goose`, `agents`.
 
 ### 3. Salin manual
 
-Unduh [rilis v1.0.0](https://github.com/awankkaley/disk-cleanup/releases/tag/v1.0.0), ekstrak, lalu
+Unduh [rilis v1.1.0](https://github.com/awankkaley/disk-cleanup/releases/tag/v1.1.0), ekstrak, lalu
 salin `SKILL.md`, `scripts/`, dan `LICENSE` ke folder bernama `disk-cleanup` di lokasi yang sesuai
 dengan agent kamu:
 
@@ -139,9 +148,42 @@ dengan agent kamu:
 
 Di Windows, `~` adalah folder pengguna kamu, misalnya `C:\Users\<kamu>`.
 
+Opsional, supaya perintah `/disk-cleanup` tersedia di Gemini CLI atau OpenCode: salin juga
+`commands/gemini/disk-cleanup.toml` ke `~/.gemini/commands/`, atau `commands/opencode/disk-cleanup.md`
+ke `~/.config/opencode/commands/`.
+
 ## Cara memakai
 
-Buka agent AI kamu dan minta dengan bahasa sehari-hari. Contohnya:
+### Ketik perintah
+
+| Agent | Ketik ini | Scan mendalam (`node_modules` lama) |
+| --- | --- | --- |
+| Claude Code | `/disk-cleanup` | `/disk-cleanup deep` |
+| Cursor | `/disk-cleanup` (pilih dari menu `/`) | `/disk-cleanup deep` |
+| GitHub Copilot CLI | `/disk-cleanup` | `/disk-cleanup deep` |
+| OpenAI Codex CLI | `$disk-cleanup` (atau pilih lewat `/skills`) | `$disk-cleanup deep` |
+| Gemini CLI | `/disk-cleanup` ¹ | `/disk-cleanup deep` |
+| OpenCode | `/disk-cleanup` ¹, atau `@disk-cleanup` | `/disk-cleanup deep` |
+| Goose | `/skills disk-cleanup`, lalu sampaikan permintaanmu | minta scan mendalam |
+| Amp | tidak ada perintah; bilang "pakai skill disk-cleanup" | minta scan mendalam |
+
+¹ Butuh file perintah yang ditambahkan installer satu baris. Tanpa file itu (pasang lewat skills CLI
+atau salin manual), minta saja dengan bahasa sehari-hari; cara kerja skill-nya sama.
+
+Yang bisa ditambahkan setelah perintah:
+
+| Kamu ketik | Yang terjadi |
+| --- | --- |
+| tanpa tambahan | Memindai lalu menampilkan tabel. |
+| `deep` | Sekalian mencari folder `node_modules` lama, dikelompokkan menurut berapa lama tidak disentuh. |
+| `help` | Menjelaskan skill ini dan pilihan di atas. Tidak menjalankan apa pun. |
+
+Memang sengaja tidak ada pilihan untuk langsung membersihkan. `/disk-cleanup clean all` pun tetap
+memindai dulu, menampilkan tabel, lalu menunggu pilihanmu.
+
+### Atau cukup minta
+
+Minta dengan bahasa sehari-hari, di agent mana pun. Contohnya:
 
 - "Laptop saya hampir penuh. Tolong bantu kosongkan ruang."
 - "Bersihkan file sampah di laptop ini."
@@ -271,11 +313,11 @@ mengubahnya.
 ## Cara menghapus skill
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.0.0/install.sh | bash -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.1.0/install.sh | bash -s -- --uninstall
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.0.0/install.ps1))) -Uninstall
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.1.0/install.ps1))) -Uninstall
 ```
 
 Kalau dulu memasang lewat skills CLI: `npx skills remove disk-cleanup -g`. Kalau menyalin manual, hapus
@@ -283,7 +325,9 @@ folder `disk-cleanup` dari folder skills agent kamu.
 
 `install.sh` hanya mau menimpa atau menghapus folder `disk-cleanup` yang memang skill ini (`SKILL.md`-nya
 berisi `name: disk-cleanup`). Kalau ternyata ada folder lain dengan nama yang sama, installer berhenti
-dan tidak mengubah apa pun.
+dan tidak mengubah apa pun. File perintah untuk Gemini CLI dan OpenCode diperlakukan sama hati-hatinya:
+hanya dihapus kalau memuat baris penanda dari installer, jadi perintah `disk-cleanup` buatanmu sendiri
+tetap aman.
 
 Skrip menyimpan satu folder state kecil (token scan terakhir dan log yang pernah kamu minta). Folder itu
 juga boleh dihapus: `~/Library/Application Support/disk-cleanup` di macOS, `%LOCALAPPDATA%\disk-cleanup`

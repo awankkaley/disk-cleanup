@@ -1,4 +1,5 @@
-# Installs the disk-cleanup Agent Skill into the skills directory of each AI agent on this machine.
+# Installs the disk-cleanup Agent Skill into the skills directory of each AI agent on this machine,
+# plus a /disk-cleanup command file for the agents that cannot start a skill with a slash command.
 # Usage: install.ps1 [-Agent NAME[,NAME...]] [-Uninstall] [-Local PATH] [-Help]
 # The --agent / --uninstall / --local / --help spellings are accepted too.
 # Arguments are parsed by hand so the script also works when piped to Invoke-Expression.
@@ -10,9 +11,11 @@ function Invoke-DiskCleanupInstaller {
     $ErrorActionPreference = 'Stop'
     $ProgressPreference = 'SilentlyContinue'
 
-    $Version = 'v1.0.0'
+    $Version = 'v1.1.0'
     $Repo = 'awankkaley/disk-cleanup'
     $SkillName = 'disk-cleanup'
+    # A command file is ours only when it carries this marker line.
+    $CommandMarker = 'disk-cleanup-skill:managed-command'
     $ArchiveUrl = "https://github.com/$Repo/archive/refs/tags/$Version.zip"
     $KnownAgents = @('claude', 'codex', 'cursor', 'gemini', 'copilot', 'opencode', 'amp', 'goose', 'agents')
 
@@ -54,6 +57,28 @@ function Invoke-DiskCleanupInstaller {
         return (Join-Path (Join-Path $HomeDir '.agents') 'skills')
     }
 
+    # Command file for the agents that cannot start a skill with a slash command but do
+    # read user-level command files. Returns $null for every other agent.
+    function Get-AgentCommand {
+        param([string]$Name, [string]$HomeDir)
+        switch ($Name) {
+            'gemini' {
+                return @{
+                    Source      = (Join-Path (Join-Path 'commands' 'gemini') "$SkillName.toml")
+                    Destination = (Join-Path (Join-Path (Join-Path $HomeDir '.gemini') 'commands') "$SkillName.toml")
+                }
+            }
+            'opencode' {
+                $configDir = Join-Path (Join-Path $HomeDir '.config') 'opencode'
+                return @{
+                    Source      = (Join-Path (Join-Path 'commands' 'opencode') "$SkillName.md")
+                    Destination = (Join-Path (Join-Path $configDir 'commands') "$SkillName.md")
+                }
+            }
+        }
+        return $null
+    }
+
     function Show-Usage {
         Write-Output "disk-cleanup skill installer ($Version)"
         Write-Output ''
@@ -69,6 +94,11 @@ function Invoke-DiskCleanupInstaller {
         Write-Output ''
         Write-Output 'Without -Agent, the skill is installed for every agent found on this machine.'
         Write-Output "Only the `"$SkillName`" folder inside each agent's skills directory is written or removed."
+        Write-Output ''
+        Write-Output 'Gemini CLI and OpenCode cannot start a skill with a slash command, so they also get one'
+        Write-Output "small /$SkillName command file (.gemini\commands\$SkillName.toml,"
+        Write-Output ".config\opencode\commands\$SkillName.md). A file of that name that this installer"
+        Write-Output 'did not write is never replaced or removed.'
     }
 
     function ConvertTo-AgentName {
@@ -239,6 +269,70 @@ function Invoke-DiskCleanupInstaller {
         }
     }
 
+    # True for a regular file (never a link) that carries our marker line.
+    function Test-OwnCommandFile {
+        param([string]$Path)
+        if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+        $item = Get-Item -LiteralPath $Path -Force
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return $false }
+        foreach ($line in [IO.File]::ReadAllLines($Path)) {
+            if ($line.Contains($CommandMarker)) { return $true }
+        }
+        return $false
+    }
+
+    # Fails before anything is changed when the source lacks a command file that a
+    # requested agent needs, or ships one without the marker uninstall relies on.
+    function Assert-CommandSource {
+        param([string[]]$Agents, [string]$HomeDir, [string]$SourceDir)
+        foreach ($name in $Agents) {
+            $command = Get-AgentCommand -Name $name -HomeDir $HomeDir
+            if ($null -eq $command) { continue }
+            if (-not (Test-OwnCommandFile -Path (Join-Path $SourceDir $command.Source))) {
+                throw "The source has no valid $($command.Source). It does not look like a $SkillName $Version checkout."
+            }
+        }
+    }
+
+    # A command file that is not ours is the user's own: it is skipped, never replaced.
+    function Install-Command {
+        param([string]$Name, [string]$HomeDir, [string]$SourceDir)
+        $command = Get-AgentCommand -Name $Name -HomeDir $HomeDir
+        if ($null -eq $command) { return }
+        $destination = $command.Destination
+        if ((Test-Path -LiteralPath $destination) -and -not (Test-OwnCommandFile -Path $destination)) {
+            Write-Output "  skipped    $destination already exists and was not written by this installer; left untouched." | Out-Host
+            Write-Output "             The skill is installed, but /$SkillName runs your own command for $Name." | Out-Host
+            return
+        }
+        try {
+            $commandsDir = Split-Path -Parent $destination
+            if (-not (Test-Path -LiteralPath $commandsDir)) {
+                New-Item -ItemType Directory -Path $commandsDir -Force | Out-Null
+            }
+            Copy-Item -LiteralPath (Join-Path $SourceDir $command.Source) -Destination $destination -Force
+        }
+        catch {
+            Write-Output "Warning: could not write $destination. The skill is installed, but /$SkillName is not available for $Name." | Out-Host
+            return
+        }
+        Write-Output "  installed  $destination" | Out-Host
+    }
+
+    function Uninstall-Command {
+        param([string]$Name, [string]$HomeDir)
+        $command = Get-AgentCommand -Name $Name -HomeDir $HomeDir
+        if ($null -eq $command) { return }
+        $destination = $command.Destination
+        if (-not (Test-Path -LiteralPath $destination)) { return }
+        if (-not (Test-OwnCommandFile -Path $destination)) {
+            Write-Output "  kept       $destination was not written by this installer; left untouched." | Out-Host
+            return
+        }
+        Remove-Item -LiteralPath $destination -Force
+        Write-Output "  removed    $destination" | Out-Host
+    }
+
     function Invoke-Install {
         param([hashtable]$Options, [string]$HomeDir)
         $agents = @($Options.Agents)
@@ -262,9 +356,13 @@ function Invoke-DiskCleanupInstaller {
             Assert-Source -SourceDir $sourceDir
             $targetDirs = @(Get-TargetDir -Agents $agents -HomeDir $HomeDir)
             foreach ($dir in $targetDirs) { Assert-Destination -SkillsDir $dir -SourceDir $sourceDir }
+            Assert-CommandSource -Agents $agents -HomeDir $HomeDir -SourceDir $sourceDir
             Write-Output "Installing $SkillName for: $($agents -join ' ')" | Out-Host
             foreach ($dir in $targetDirs) {
                 Install-Into -SkillsDir $dir -SourceDir $sourceDir
+            }
+            foreach ($name in @($agents | Select-Object -Unique)) {
+                Install-Command -Name $name -HomeDir $HomeDir -SourceDir $sourceDir
             }
         }
         finally {
@@ -272,7 +370,8 @@ function Invoke-DiskCleanupInstaller {
                 Remove-Item -LiteralPath $tempDir -Recurse -Force
             }
         }
-        Write-Output 'Done. Restart your AI agent, then ask it something like: "My disk is almost full, help me free up space."' | Out-Host
+        Write-Output ('Done. Restart your AI agent, then type /' + $SkillName + ' (in Codex: $' + $SkillName + '),') | Out-Host
+        Write-Output 'or ask it something like: "My disk is almost full, help me free up space."' | Out-Host
     }
 
     function Invoke-Uninstall {
@@ -284,6 +383,9 @@ function Invoke-DiskCleanupInstaller {
         Write-Output "Removing $SkillName ..." | Out-Host
         foreach ($dir in $targetDirs) {
             Uninstall-From -SkillsDir $dir
+        }
+        foreach ($name in @($agents | Select-Object -Unique)) {
+            Uninstall-Command -Name $name -HomeDir $HomeDir
         }
         Write-Output 'Done.' | Out-Host
     }

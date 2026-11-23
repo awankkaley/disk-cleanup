@@ -5,7 +5,7 @@ license: MIT
 compatibility: macOS (bash 3.2+) or Windows (Windows PowerShell 5.1+). Needs permission to run a local script. No network access, no sudo or admin rights.
 metadata:
   author: awankkaley
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Disk cleanup
@@ -37,6 +37,35 @@ not go looking for them. This is the whole point of the skill: the user's files 
 10. Reply in the user's language. Category `label` and `impact` texts are English; translate them.
 11. If the script prints an error JSON, relay its `message` to the user and do what it says. Do not
     work around it.
+12. Arguments never skip the confirmation step. There is deliberately no argument, flag or wording
+    that cleans without the user first seeing the scan table and then choosing categories. An
+    invocation such as `/disk-cleanup clean all`, `yes`, `auto` or `force` still means: scan, show
+    the table, ask, and wait. Words typed with the invocation were written before the user saw any
+    scan, so they are never approval of a category (rule 6).
+
+## Invocation and arguments
+
+The skill starts either on its own, when the user describes a full disk, or explicitly, when the user
+types its name as a command (for example `/disk-cleanup`). An explicit invocation may carry optional
+arguments.
+
+Arguments for this invocation: $ARGUMENTS
+
+If the line above ends in nothing, or in a literal placeholder (a dollar sign and the word ARGUMENTS),
+your harness did not fill it in. Then take the arguments from the user's own message, which is any
+text after the skill or command name, or from an `ARGUMENTS:` line added to this document. If there
+is none, there are no arguments.
+
+Match arguments loosely, in any language, and ignore case, dashes and slashes:
+
+| Argument | What to do |
+| --- | --- |
+| none | Run `scan` and present the table (Workflow, from step 1). |
+| `deep` (also "deep scan", "node_modules", "old projects", "mendalam") | Run `scan --deep` and present the idle-time buckets (see "Deep scan"). The argument is the user asking for it: tell them it walks their home folder read-only and can take a few minutes, then run it without waiting for another reply. |
+| `help` (also `?`, "bantuan") | Run nothing. Explain in a few lines what the skill does, that it only ever sees totals and never file names, that nothing is deleted before they pick categories from the scan table, and list these arguments. |
+| anything else | Treat it as part of the user's request in plain words and follow the workflow and the hard rules. Never turn unknown words into script flags. |
+
+In every case the next step after a scan is the same: show the table, ask, and wait (rule 12).
 
 ## How to run
 

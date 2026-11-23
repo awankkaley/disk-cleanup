@@ -32,6 +32,20 @@ BeforeAll {
         }
         return $true
     }
+
+    function Get-CommandFile {
+        param([string]$Agent)
+        if ($Agent -eq 'gemini') {
+            return (Join-Path -Path $script:sandbox.Home -ChildPath '.gemini\commands\disk-cleanup.toml')
+        }
+        return (Join-Path -Path $script:sandbox.Home -ChildPath '.config\opencode\commands\disk-cleanup.md')
+    }
+
+    function Set-ForeignFile {
+        param([string]$Path, [string]$Text)
+        [void][System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($Path))
+        [System.IO.File]::WriteAllText($Path, $Text)
+    }
 }
 
 Describe 'install.ps1' {
@@ -192,6 +206,71 @@ Describe 'install.ps1' {
         $run.ExitCode | Should -Be 1
         Test-Path -LiteralPath $foreign | Should -BeTrue
         [System.IO.File]::ReadAllText($otherSkill) | Should -Match 'zqsomething-else'
+    }
+
+    It 'installs a command file for gemini and opencode and for no other agent' {
+        if (-not $script:canRun) {
+            Set-ItResult -Skipped -Because 'Windows PowerShell is not available here'
+            return
+        }
+
+        $run = Invoke-Installer -Arguments @('--local', $script:repoRoot, '--agent', 'claude,codex,cursor,gemini,copilot,opencode')
+
+        $run.ExitCode | Should -Be 0
+        foreach ($agent in @('gemini', 'opencode')) {
+            $commandFile = Get-CommandFile -Agent $agent
+            Test-Path -LiteralPath $commandFile -PathType Leaf | Should -BeTrue
+            [System.IO.File]::ReadAllText($commandFile) | Should -Match 'disk-cleanup-skill:managed-command'
+        }
+        Test-SkillInstalled -AgentFolder '.gemini' | Should -BeTrue
+        Test-SkillInstalled -AgentFolder '.config\opencode' | Should -BeTrue
+        foreach ($absent in @('.claude\commands', '.cursor\commands', '.copilot\commands', '.agents\commands', '.codex', '.gemini\skills\disk-cleanup\commands')) {
+            Test-Path -LiteralPath (Join-Path -Path $script:sandbox.Home -ChildPath $absent) | Should -BeFalse
+        }
+    }
+
+    It 'uninstalls its own command files and keeps other commands' {
+        if (-not $script:canRun) {
+            Set-ItResult -Skipped -Because 'Windows PowerShell is not available here'
+            return
+        }
+        $null = Invoke-Installer -Arguments @('--local', $script:repoRoot, '--agent', 'gemini,opencode')
+        $neighbour = Join-Path -Path $script:sandbox.Home -ChildPath '.gemini\commands\zqother.toml'
+        Set-ForeignFile -Path $neighbour -Text 'prompt = "zqmine"'
+        $installedBefore = Test-Path -LiteralPath (Get-CommandFile -Agent 'gemini') -PathType Leaf
+
+        $run = Invoke-Installer -Arguments @('--uninstall', '--agent', 'gemini')
+
+        $installedBefore | Should -BeTrue
+        $run.ExitCode | Should -Be 0
+        Test-Path -LiteralPath (Get-CommandFile -Agent 'gemini') | Should -BeFalse
+        Test-Path -LiteralPath (Get-SkillDir -AgentFolder '.gemini') | Should -BeFalse
+        Test-Path -LiteralPath $neighbour | Should -BeTrue
+        Test-Path -LiteralPath (Get-CommandFile -Agent 'opencode') -PathType Leaf | Should -BeTrue
+    }
+
+    It 'never replaces or removes a command file of the same name that is not its own' {
+        if (-not $script:canRun) {
+            Set-ItResult -Skipped -Because 'Windows PowerShell is not available here'
+            return
+        }
+        $geminiFile = Get-CommandFile -Agent 'gemini'
+        $opencodeFile = Get-CommandFile -Agent 'opencode'
+        Set-ForeignFile -Path $geminiFile -Text 'prompt = "zqmine"'
+        Set-ForeignFile -Path $opencodeFile -Text 'zqmine'
+
+        $install = Invoke-Installer -Arguments @('--local', $script:repoRoot, '--agent', 'gemini,opencode')
+        $afterInstall = [System.IO.File]::ReadAllText($geminiFile)
+        $skillInstalled = Test-SkillInstalled -AgentFolder '.gemini'
+        $uninstall = Invoke-Installer -Arguments @('--uninstall', '--agent', 'gemini,opencode')
+
+        $install.ExitCode | Should -Be 0
+        $afterInstall | Should -Be 'prompt = "zqmine"'
+        $skillInstalled | Should -BeTrue
+        $uninstall.ExitCode | Should -Be 0
+        [System.IO.File]::ReadAllText($geminiFile) | Should -Be 'prompt = "zqmine"'
+        [System.IO.File]::ReadAllText($opencodeFile) | Should -Be 'zqmine'
+        Test-Path -LiteralPath (Get-SkillDir -AgentFolder '.gemini') | Should -BeFalse
     }
 
     It 'aborts when the --local source is the install location itself' {

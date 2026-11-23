@@ -5,7 +5,7 @@
 An Agent Skill that lets your AI assistant (Claude Code, Codex CLI, Cursor, Gemini CLI and others) free
 up disk space on macOS and Windows without ever seeing your files.
 
-You say "my disk is full". The assistant runs one script, shows you a table of what can be cleaned and
+You type `/disk-cleanup` or just say "my disk is full". The assistant runs one script, shows you a table of what can be cleaned and
 how much space each item would free, asks which ones you want, and cleans only those.
 
 ## What it does
@@ -89,39 +89,47 @@ npx skills add awankkaley/disk-cleanup -g
 `-g` installs it for your user account so it works in every project. Add `-a claude-code` (or `codex`,
 `cursor`, `gemini-cli`, ...) to choose agents, or let the CLI ask you.
 
+The skills CLI installs the skill itself, which is all most agents need. The only thing it leaves out is
+the small `/disk-cleanup` command file for Gemini CLI and OpenCode (see "How to use"); on those two,
+ask in plain words, or use the one-line installer instead.
+
 ### 2. One-line installer
 
 macOS (Terminal):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.0.0/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.1.0/install.sh | bash
 ```
 
 Windows (PowerShell):
 
 ```powershell
-irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.0.0/install.ps1 | iex
+irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.1.0/install.ps1 | iex
 ```
 
-The installer downloads release v1.0.0, finds the AI agents on your computer, and copies three things
-into each agent's skills folder: `SKILL.md`, `scripts/` and `LICENSE`. It does not run the cleanup, does
-not need administrator rights, and writes nowhere else.
+The installer downloads release v1.1.0, finds the AI agents on your computer, and copies three things
+into each agent's skills folder: `SKILL.md`, `scripts/` and `LICENSE`. For Gemini CLI and OpenCode,
+which cannot start a skill with a slash command, it also adds one small command file
+(`~/.gemini/commands/disk-cleanup.toml`, `~/.config/opencode/commands/disk-cleanup.md`) that does
+nothing but hand over to the skill. If you already have your own command file with that name, the
+installer leaves it alone and tells you. It does not run the cleanup, does not need administrator
+rights, and writes nowhere else.
 
 To install for specific agents only:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.0.0/install.sh | bash -s -- --agent claude,cursor
+curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.1.0/install.sh | bash -s -- --agent claude,cursor
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.0.0/install.ps1))) -Agent claude,cursor
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.1.0/install.ps1))) -Agent claude,cursor
 ```
 
 Agent names: `claude`, `codex`, `cursor`, `gemini`, `copilot`, `opencode`, `amp`, `goose`, `agents`.
 
 ### 3. Manual copy
 
-Download the [v1.0.0 release](https://github.com/awankkaley/disk-cleanup/releases/tag/v1.0.0), unpack
+Download the [v1.1.0 release](https://github.com/awankkaley/disk-cleanup/releases/tag/v1.1.0), unpack
 it, and copy `SKILL.md`, `scripts/` and `LICENSE` into a folder named `disk-cleanup` at the right
 location for your agent:
 
@@ -137,9 +145,42 @@ location for your agent:
 
 On Windows, `~` is your user folder, for example `C:\Users\<you>`.
 
+Optional, for the `/disk-cleanup` command on Gemini CLI or OpenCode: also copy
+`commands/gemini/disk-cleanup.toml` to `~/.gemini/commands/`, or `commands/opencode/disk-cleanup.md` to
+`~/.config/opencode/commands/`.
+
 ## How to use
 
-Open your AI agent and ask in plain words. For example:
+### Type a command
+
+| Agent | Type this | Deep scan (old `node_modules`) |
+| --- | --- | --- |
+| Claude Code | `/disk-cleanup` | `/disk-cleanup deep` |
+| Cursor | `/disk-cleanup` (pick it from the `/` menu) | `/disk-cleanup deep` |
+| GitHub Copilot CLI | `/disk-cleanup` | `/disk-cleanup deep` |
+| OpenAI Codex CLI | `$disk-cleanup` (or pick it with `/skills`) | `$disk-cleanup deep` |
+| Gemini CLI | `/disk-cleanup` ¹ | `/disk-cleanup deep` |
+| OpenCode | `/disk-cleanup` ¹, or `@disk-cleanup` | `/disk-cleanup deep` |
+| Goose | `/skills disk-cleanup`, then ask | ask for a deep scan |
+| Amp | no command; say "use the disk-cleanup skill" | ask for a deep scan |
+
+¹ Needs the command file that the one-line installer adds. Without it (skills CLI or manual copy), ask
+in plain words; the skill works the same.
+
+What you can add after the command:
+
+| You type | What happens |
+| --- | --- |
+| nothing | Scans and shows the table. |
+| `deep` | Also looks for old `node_modules` folders, grouped by how long they have been untouched. |
+| `help` | Explains the skill and these options. Runs nothing. |
+
+There is no option that cleans straight away, on purpose. Even `/disk-cleanup clean all` scans first,
+shows you the table, and waits for you to choose.
+
+### Or just ask
+
+Ask in plain words, in any agent. For example:
 
 - "My disk is almost full. Help me free up some space."
 - "Clean up junk files on this laptop."
@@ -267,11 +308,11 @@ for it and never changes it.
 ## Uninstall
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.0.0/install.sh | bash -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.1.0/install.sh | bash -s -- --uninstall
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.0.0/install.ps1))) -Uninstall
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.1.0/install.ps1))) -Uninstall
 ```
 
 If you installed with the skills CLI: `npx skills remove disk-cleanup -g`. If you copied it by hand,
@@ -279,6 +320,8 @@ delete the `disk-cleanup` folder from your agent's skills folder.
 
 `install.sh` only replaces or removes a `disk-cleanup` folder that really is this skill (its `SKILL.md`
 says `name: disk-cleanup`). If it finds a different folder with that name it stops and changes nothing.
+The same care applies to the Gemini CLI and OpenCode command files: uninstall removes them only when
+they carry the installer's marker line, so a `disk-cleanup` command you wrote yourself stays.
 
 The script keeps a small state folder (the last scan token and any logs you asked for). You can delete
 it too: `~/Library/Application Support/disk-cleanup` on macOS, `%LOCALAPPDATA%\disk-cleanup` on Windows.

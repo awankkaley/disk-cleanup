@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Installs the disk-cleanup Agent Skill into the skills directory of each AI agent on this machine.
+# Installs the disk-cleanup Agent Skill into the skills directory of each AI agent on this machine,
+# plus a /disk-cleanup command file for the agents that cannot start a skill with a slash command.
 # Usage: install.sh [--agent NAME[,NAME...]] [--uninstall] [--local PATH] [--help]
 set -eu
 
-VERSION="v1.0.0"
+VERSION="v1.1.0"
 REPO="awankkaley/disk-cleanup"
 SKILL_NAME="disk-cleanup"
+# A command file is ours only when it carries this marker line.
+COMMAND_MARKER="disk-cleanup-skill:managed-command"
 ARCHIVE_URL="https://github.com/${REPO}/archive/refs/tags/${VERSION}.tar.gz"
 KNOWN_AGENTS="claude codex cursor gemini copilot opencode amp goose agents"
 EXIT_USAGE=2
@@ -34,6 +37,11 @@ Options:
 Without --agent, the skill is installed for every agent found on this machine.
 Only the "${SKILL_NAME}" folder inside each agent's skills directory is written or removed,
 and an existing folder of that name is only replaced or removed when it is this skill.
+
+Gemini CLI and OpenCode cannot start a skill with a slash command, so they also get one
+small /${SKILL_NAME} command file (~/.gemini/commands/${SKILL_NAME}.toml,
+~/.config/opencode/commands/${SKILL_NAME}.md). A file of that name that this installer
+did not write is never replaced or removed.
 EOF
 }
 
@@ -77,6 +85,24 @@ agent_skills_dir() {
     opencode) printf '%s' "$HOME/.config/opencode/skills" ;;
     codex | amp | goose | agents) printf '%s' "$HOME/.agents/skills" ;;
     *) return 1 ;;
+  esac
+}
+
+# Command file inside the source, for the agents that cannot start a skill with
+# a slash command but do read user-level command files. Empty for all others.
+agent_command_source() {
+  case "$1" in
+    gemini) printf '%s' "commands/gemini/${SKILL_NAME}.toml" ;;
+    opencode) printf '%s' "commands/opencode/${SKILL_NAME}.md" ;;
+    *) : ;;
+  esac
+}
+
+agent_command_dest() {
+  case "$1" in
+    gemini) printf '%s' "$HOME/.gemini/commands/${SKILL_NAME}.toml" ;;
+    opencode) printf '%s' "$HOME/.config/opencode/commands/${SKILL_NAME}.md" ;;
+    *) : ;;
   esac
 }
 
@@ -247,6 +273,58 @@ remove_destination() {
   fi
 }
 
+# True for a regular file (never a symlink) that carries our marker line.
+is_our_command() {
+  [ ! -L "$1" ] && [ -f "$1" ] && grep -qF "$COMMAND_MARKER" "$1" 2>/dev/null
+}
+
+# Fails before anything is changed when the source lacks a command file that a
+# requested agent needs, or ships one without the marker uninstall relies on.
+check_command_sources() {
+  local name relative
+  for name in $1; do
+    relative=$(agent_command_source "$name")
+    [ -n "$relative" ] || continue
+    is_our_command "$SOURCE_DIR/$relative" ||
+      die "The source has no valid $relative. It does not look like a ${SKILL_NAME} ${VERSION} checkout."
+  done
+}
+
+# A command file that is not ours is the user's own: it is skipped, never replaced.
+install_command() {
+  local relative dest
+  relative=$(agent_command_source "$1")
+  [ -n "$relative" ] || return 0
+  dest=$(agent_command_dest "$1")
+  if [ -e "$dest" ] || [ -L "$dest" ]; then
+    if ! is_our_command "$dest"; then
+      info "  skipped    $dest already exists and was not written by this installer; left untouched."
+      info "             The skill is installed, but /${SKILL_NAME} runs your own command for $1."
+      return 0
+    fi
+  fi
+  if ! mkdir -p "${dest%/*}" 2>/dev/null || ! cp "$SOURCE_DIR/$relative" "$dest" 2>/dev/null; then
+    warn "could not write $dest. The skill is installed, but /${SKILL_NAME} is not available for $1."
+    return 0
+  fi
+  info "  installed  $dest"
+}
+
+uninstall_command() {
+  local dest
+  dest=$(agent_command_dest "$1")
+  [ -n "$dest" ] || return 0
+  if [ ! -e "$dest" ] && [ ! -L "$dest" ]; then
+    return 0
+  fi
+  if ! is_our_command "$dest"; then
+    info "  kept       $dest was not written by this installer; left untouched."
+    return 0
+  fi
+  rm -f "$dest" || die "Could not remove $dest"
+  info "  removed    $dest"
+}
+
 resolve_source() {
   if [ -n "$LOCAL_SOURCE" ]; then
     [ -d "$LOCAL_SOURCE" ] || die "--local path is not a folder."
@@ -297,14 +375,17 @@ run_install() {
   local agents="$1" name dir
   resolve_source
   check_destinations "$agents" separate
+  check_command_sources "$agents"
   info "Installing ${SKILL_NAME} for:${agents}"
   for name in $agents; do
     dir=$(agent_skills_dir "$name")
     already_done "$dir" && continue
     install_into "$dir"
+    install_command "$name"
     DONE_DIRS="$DONE_DIRS|$dir|"
   done
-  info "Done. Restart your AI agent, then ask it something like: \"My disk is almost full, help me free up space.\""
+  info "Done. Restart your AI agent, then type /${SKILL_NAME} (in Codex: \$${SKILL_NAME}),"
+  info "or ask it something like: \"My disk is almost full, help me free up space.\""
 }
 
 run_uninstall() {
@@ -315,6 +396,7 @@ run_uninstall() {
     dir=$(agent_skills_dir "$name")
     already_done "$dir" && continue
     uninstall_from "$dir"
+    uninstall_command "$name"
     DONE_DIRS="$DONE_DIRS|$dir|"
   done
   info "Done."

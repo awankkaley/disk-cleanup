@@ -17,6 +17,9 @@ setup() {
   printf 'helper\n' >"$CHECKOUT/scripts/lib/helper.sh"
   printf 'readme\n' >"$CHECKOUT/README.md"
   printf 'test\n' >"$CHECKOUT/tests/some.bats"
+  cp -R "$REPO_ROOT/commands" "$CHECKOUT/commands"
+  GEMINI_COMMAND="$FAKE_HOME/.gemini/commands/disk-cleanup.toml"
+  OPENCODE_COMMAND="$FAKE_HOME/.config/opencode/commands/disk-cleanup.md"
 
   # Any network or cleanup-script execution would be a bug: make it fail loudly.
   printf '#!/bin/bash\necho "curl must not be called" >&2\nexit 97\n' >"$STUB_BIN/curl"
@@ -337,7 +340,130 @@ snapshot_home() {
   [ ! -e "$SANDBOX/cleanup-was-run" ]
 }
 
-@test "pinned version and download URL point at the v1.0.0 tag" {
-  grep -q '^VERSION="v1.0.0"$' "$REPO_ROOT/install.sh"
+@test "command files are installed for gemini and opencode and for no other agent" {
+  run_installer --local "$CHECKOUT" --agent claude,codex,cursor,gemini,copilot,opencode,amp,goose,agents
+  [ "$status" -eq 0 ]
+  cmp -s "$CHECKOUT/commands/gemini/disk-cleanup.toml" "$GEMINI_COMMAND"
+  cmp -s "$CHECKOUT/commands/opencode/disk-cleanup.md" "$OPENCODE_COMMAND"
+  local commands
+  commands="$(cd "$FAKE_HOME" && find . -path '*/skills' -prune -o \( -name 'disk-cleanup.*' -o -name commands -o -name prompts \) -print | LC_ALL=C sort | tr '\n' ' ')"
+  [ "$commands" = "./.config/opencode/commands ./.config/opencode/commands/disk-cleanup.md ./.gemini/commands ./.gemini/commands/disk-cleanup.toml " ]
+  [ "$(cd "$FAKE_HOME/.gemini/skills/disk-cleanup" && ls -A | LC_ALL=C sort | tr '\n' ' ')" = "LICENSE SKILL.md scripts " ]
+}
+
+@test "agents whose skills are already invocable get no command file" {
+  mkdir -p "$FAKE_HOME/.claude" "$FAKE_HOME/.cursor" "$FAKE_HOME/.copilot" "$FAKE_HOME/.codex"
+  run_installer --local "$CHECKOUT"
+  [ "$status" -eq 0 ]
+  [ -z "$(cd "$FAKE_HOME" && find . -name commands -o -name prompts -o -name 'disk-cleanup.*')" ]
+}
+
+@test "re-install refreshes our own command file" {
+  run_installer --local "$CHECKOUT" --agent gemini
+  [ "$status" -eq 0 ]
+  printf '# disk-cleanup-skill:managed-command\nprompt = "stale"\n' >"$GEMINI_COMMAND"
+  run_installer --local "$CHECKOUT" --agent gemini
+  [ "$status" -eq 0 ]
+  cmp -s "$CHECKOUT/commands/gemini/disk-cleanup.toml" "$GEMINI_COMMAND"
+}
+
+@test "--uninstall removes our command files and keeps the user's other commands" {
+  mkdir -p "$FAKE_HOME/.gemini/commands" "$FAKE_HOME/.config/opencode/commands"
+  printf 'prompt = "mine"\n' >"$FAKE_HOME/.gemini/commands/other.toml"
+  printf 'mine\n' >"$FAKE_HOME/.config/opencode/commands/other.md"
+  local before
+  before="$(snapshot_home)"
+  run_installer --local "$CHECKOUT"
+  [ "$status" -eq 0 ]
+  [ -f "$GEMINI_COMMAND" ]
+  [ -f "$OPENCODE_COMMAND" ]
+
+  run_installer --uninstall
+  [ "$status" -eq 0 ]
+  [ ! -e "$GEMINI_COMMAND" ]
+  [ ! -e "$OPENCODE_COMMAND" ]
+  [ "$(cat "$FAKE_HOME/.gemini/commands/other.toml")" = 'prompt = "mine"' ]
+  [ "$(snapshot_home | grep -v '/skills$')" = "$before" ]
+}
+
+@test "--uninstall with --agent removes only that agent's command file" {
+  run_installer --local "$CHECKOUT" --agent gemini,opencode
+  [ "$status" -eq 0 ]
+  run_installer --uninstall --agent gemini
+  [ "$status" -eq 0 ]
+  [ ! -e "$GEMINI_COMMAND" ]
+  [ -f "$OPENCODE_COMMAND" ]
+}
+
+@test "a foreign command file of the same name is never replaced or removed" {
+  mkdir -p "$FAKE_HOME/.gemini/commands" "$FAKE_HOME/.config/opencode/commands"
+  printf 'prompt = "my own disk-cleanup command"\n' >"$GEMINI_COMMAND"
+  printf 'my own disk-cleanup command\n' >"$OPENCODE_COMMAND"
+
+  run_installer --local "$CHECKOUT"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"skipped    $GEMINI_COMMAND"* ]]
+  [[ "$output" == *"skipped    $OPENCODE_COMMAND"* ]]
+  [ "$(cat "$GEMINI_COMMAND")" = 'prompt = "my own disk-cleanup command"' ]
+  [ "$(cat "$OPENCODE_COMMAND")" = "my own disk-cleanup command" ]
+  [ -f "$FAKE_HOME/.gemini/skills/disk-cleanup/SKILL.md" ]
+
+  run_installer --uninstall
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"kept       $GEMINI_COMMAND"* ]]
+  [ "$(cat "$GEMINI_COMMAND")" = 'prompt = "my own disk-cleanup command"' ]
+  [ "$(cat "$OPENCODE_COMMAND")" = "my own disk-cleanup command" ]
+  [ ! -e "$FAKE_HOME/.gemini/skills/disk-cleanup" ]
+}
+
+@test "a symlinked command file is left alone, and so is its target" {
+  mkdir -p "$FAKE_HOME/.gemini/commands" "$SANDBOX/elsewhere"
+  printf '# disk-cleanup-skill:managed-command\nprompt = "linked"\n' >"$SANDBOX/elsewhere/linked.toml"
+  ln -s "$SANDBOX/elsewhere/linked.toml" "$GEMINI_COMMAND"
+  run_installer --local "$CHECKOUT" --agent gemini
+  [ "$status" -eq 0 ]
+  run_installer --uninstall --agent gemini
+  [ "$status" -eq 0 ]
+  [ -L "$GEMINI_COMMAND" ]
+  [ "$(sed -n 2p "$SANDBOX/elsewhere/linked.toml")" = 'prompt = "linked"' ]
+}
+
+@test "a source without the command file fails before anything is installed" {
+  mv "$CHECKOUT/commands" "$SANDBOX/commands-moved-away"
+  run_installer --local "$CHECKOUT" --agent claude,gemini
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"commands/gemini/disk-cleanup.toml"* ]]
+  [ "$(snapshot_home)" = "." ]
+  run_installer --local "$CHECKOUT" --agent claude
+  [ "$status" -eq 0 ]
+  [ -f "$FAKE_HOME/.claude/skills/disk-cleanup/SKILL.md" ]
+}
+
+@test "shipped command files carry the marker, pass the arguments and hold no script paths" {
+  local file
+  for file in "$REPO_ROOT/commands/gemini/disk-cleanup.toml" "$REPO_ROOT/commands/opencode/disk-cleanup.md"; do
+    grep -qF 'disk-cleanup-skill:managed-command' "$file"
+    run grep -qE 'cleanup\.(sh|ps1)|scripts/|--token|--categories' "$file"
+    [ "$status" -eq 1 ]
+  done
+  grep -qF '{{args}}' "$REPO_ROOT/commands/gemini/disk-cleanup.toml"
+  grep -qF '$ARGUMENTS' "$REPO_ROOT/commands/opencode/disk-cleanup.md"
+  [ "$(find "$REPO_ROOT/commands" -type f | wc -l | tr -d ' ')" = "2" ]
+}
+
+@test "SKILL.md takes optional arguments and never lets them skip the confirmation" {
+  local skill="$REPO_ROOT/SKILL.md"
+  [ "$(grep -cF '$ARGUMENTS' "$skill")" -eq 1 ]
+  grep -q '^  version: "1.1.0"$' "$skill"
+  grep -qi 'arguments never skip' "$skill"
+  run grep -qE '\$[0-9]' "$skill"
+  [ "$status" -eq 1 ]
+}
+
+@test "pinned version and download URL point at the v1.1.0 tag" {
+  grep -q '^VERSION="v1.1.0"$' "$REPO_ROOT/install.sh"
+  grep -q "^    \$Version = 'v1.1.0'\$" "$REPO_ROOT/install.ps1"
+  run grep -q 'v1\.0\.0' "$REPO_ROOT/README.md" "$REPO_ROOT/README.id.md" "$REPO_ROOT/install.sh" "$REPO_ROOT/install.ps1"
+  [ "$status" -eq 1 ]
   grep -q 'github.com/${REPO}/archive/refs/tags/${VERSION}.tar.gz' "$REPO_ROOT/install.sh"
 }

@@ -5,7 +5,7 @@
 set -u
 export LC_ALL=C
 
-readonly VERSION="1.0.0"
+readonly VERSION="1.1.0"
 readonly SCHEMA_VERSION=1
 readonly PLATFORM="macos"
 readonly EXIT_ERROR=1
