@@ -13,6 +13,7 @@ $script:REVIEW_REPORT_NAME = 'review.html'
 $script:REVIEW_REPORT_HINT = '%LOCALAPPDATA%\disk-cleanup\review.html'
 $script:REVIEW_SELECTION_HINT = 'Downloads/disk-cleanup-selection.json'
 $script:DOWNLOADS_DIR_NAME = 'Downloads'
+$script:DESKTOP_DIR_NAME = 'Desktop'
 $script:REVIEW_GROUP_LARGE = 'large-files'
 $script:REVIEW_GROUP_DOWNLOADS = 'old-downloads'
 $script:REVIEW_GROUPS = @(
@@ -114,10 +115,17 @@ function Get-ReviewRoot {
     $homeRoot = Get-NormalizedPath -Path $env:USERPROFILE
     $stateRoot = Get-NormalizedPath -Path (Get-StateDirectory)
     if (($null -eq $homeRoot) -or ($null -eq $stateRoot)) { Invoke-CleanupFailure -Code 'INTERNAL' }
-    $downloads = $null
-    $candidate = [System.IO.Path]::Combine($homeRoot, $script:DOWNLOADS_DIR_NAME)
-    if (Test-RealDirectory -Path $candidate) { $downloads = Get-NormalizedPath -Path $candidate }
-    return [pscustomobject]@{ Home = $homeRoot; Downloads = $downloads; StateDir = $stateRoot }
+    $downloads = Get-ReviewProfileFolder -HomeRoot $homeRoot -Name $script:DOWNLOADS_DIR_NAME
+    $desktop = Get-ReviewProfileFolder -HomeRoot $homeRoot -Name $script:DESKTOP_DIR_NAME
+    return [pscustomobject]@{ Home = $homeRoot; Downloads = $downloads; Desktop = $desktop; StateDir = $stateRoot }
+}
+
+# A folder directly inside the profile, or $null when it is missing or is a link.
+function Get-ReviewProfileFolder {
+    param([string]$HomeRoot, [string]$Name)
+    $candidate = [System.IO.Path]::Combine($HomeRoot, $Name)
+    if (-not (Test-RealDirectory -Path $candidate)) { return $null }
+    return (Get-NormalizedPath -Path $candidate)
 }
 
 # The review guard. A path may be listed, and later recycled, only when it is spelled

@@ -295,6 +295,14 @@ write_selection() {
   printf '{"token":"%s","secret":"%s","ids":[%s]}' "$1" "$secret" "$2" > "$SANDBOX_HOME/Downloads/$name"
 }
 
+# write_desktop_selection TOKEN IDS [FILE NAME] [SECRET]: the same file, saved
+# on the Desktop because the browser asked where to put it.
+write_desktop_selection() {
+  local name=${3:-disk-cleanup-selection.json} secret=${4-$SECRET}
+  mkdir -p "$SANDBOX_HOME/Desktop"
+  printf '{"token":"%s","secret":"%s","ids":[%s]}' "$1" "$secret" "$2" > "$SANDBOX_HOME/Desktop/$name"
+}
+
 # The v1.1-style file an assistant could write from the token alone.
 write_forged_selection() {
   mkdir -p "$SANDBOX_HOME/Downloads"

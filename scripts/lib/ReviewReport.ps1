@@ -65,29 +65,41 @@ td.num{font-weight:600}
 input[type=checkbox]{width:22px;height:22px;accent-color:var(--mark);cursor:pointer}
 .empty{padding:28px;text-align:center;color:var(--soft)}
 .dock{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:3px solid var(--ink);box-shadow:0 -14px 30px -20px rgba(0,0,0,.6)}
-.dock div{max-width:1100px;margin:0 auto;padding:14px 24px;display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;justify-content:space-between}
+.dock>div{max-width:1100px;margin:0 auto;padding:14px 24px;display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;justify-content:space-between}
 .dock p{margin:0}
 #summary{font:700 20px/1.2 Georgia,"Times New Roman",serif}
-#saved{flex-basis:100%;font-size:14px}
+.act{display:flex;flex-direction:column;align-items:flex-end;gap:6px;max-width:430px}
+.dock p#save-note{font-size:14px;color:var(--soft);text-align:right}
 #save{background:var(--mark);color:var(--mark-ink);border-color:var(--mark);padding:11px 22px}
 #save:disabled{opacity:.45;cursor:not-allowed}
+.done{min-height:100vh;display:grid;place-items:center;padding:44px 24px}
+.done .card{width:100%;max-width:620px;background:var(--card);border:1px solid var(--line);border-top:6px solid var(--mark);border-radius:14px;box-shadow:0 18px 40px -28px rgba(0,0,0,.55);padding:40px 32px 32px;text-align:center}
+.tick{width:88px;height:88px;margin:0 auto 20px;border-radius:50%;background:var(--mark);color:var(--mark-ink);font:700 52px/88px "Segoe UI",system-ui,sans-serif}
+.done h2{margin:0 0 8px;font:700 clamp(30px,4vw,44px)/1.1 Georgia,"Times New Roman",serif}
+#done-count{margin:0 0 28px;color:var(--soft);font-size:17px}
+.next{margin:0 0 16px;padding:20px 16px;background:var(--stripe);border-radius:10px;font:700 clamp(21px,2.6vw,28px)/1.4 Georgia,"Times New Roman",serif}
+.next strong{display:inline-block;padding:0 10px;border:2px solid var(--mark);border-radius:8px;color:var(--mark);font-family:Consolas,"Cascadia Mono",ui-monospace,monospace}
+.calm{margin:0 0 28px;color:var(--soft)}
+#change{font-size:15px;font-weight:600}
 .vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 [hidden]{display:none!important}
-@media (max-width:720px){.group,.when{display:none}main{padding:28px 14px 170px}}
-@media (prefers-reduced-motion:no-preference){tbody tr,button,select{transition:box-shadow .15s,border-color .15s}}
+@media (max-width:720px){.group,.when{display:none}main{padding:28px 14px 170px}.act{align-items:stretch}.dock p#save-note{text-align:left}}
+@media (prefers-reduced-motion:no-preference){tbody tr,button,select{transition:box-shadow .15s,border-color .15s}.done:not([hidden]) .card{animation:rise .32s cubic-bezier(.16,1,.3,1)}.done:not([hidden]) .tick{animation:pop .42s cubic-bezier(.16,1,.3,1)}}
+@keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes pop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:none}}
 </style>
 </head>
 '@
 
 $script:REPORT_INTRO = @'
-<main>
+<main id="choose">
 <header>
 <p class="kicker" data-t="kicker">Disk cleanup</p>
 <h1 data-t="title">Choose what you no longer need</h1>
 <p class="lead" data-t="lead">This list was made on your computer and stays on your computer. The assistant cannot see file names, only how many items you pick and their total size.</p>
 <ul class="notes">
 <li data-t="n1">Nothing is deleted from this page. Ticking a box only marks an item.</li>
-<li data-t="n2">Ticked items are moved to the Recycle Bin only after you press Save selection and tell the assistant to continue. You can still restore them from the Recycle Bin.</li>
+<li data-t="n2">Ticked items are moved to the Recycle Bin only after you press Done choosing and tell the assistant to continue. You can still restore them from the Recycle Bin.</li>
 <li class="warn" data-t="n3">Careful with synced folders: a file inside OneDrive, iCloud or Dropbox is also removed from the cloud and from your other devices.</li>
 </ul>
 </header>
@@ -121,10 +133,20 @@ $script:REPORT_TAIL = @'
 <p class="empty" id="empty" hidden data-t="empty">No large files or old downloads were found. There is nothing to choose.</p>
 </div>
 </main>
-<footer class="dock"><div>
+<section class="done" id="done" hidden aria-labelledby="done-title"><div class="card">
+<p class="tick" aria-hidden="true">&#10003;</p>
+<h2 id="done-title" tabindex="-1" data-t="doneTitle">Your choice is saved</h2>
+<p id="done-count"></p>
+<p class="next"><span data-t="doneNext">Go back to your assistant and type:</span> <strong data-t="doneWord">done</strong></p>
+<p class="calm" data-t="doneCalm">Nothing has been moved yet. You can close this page.</p>
+<button type="button" id="change" data-t="change">Change my choice</button>
+</div></section>
+<footer class="dock" id="dock"><div>
 <p id="summary" aria-live="polite"></p>
-<button type="button" id="save" disabled data-t="save">Save selection</button>
-<p id="saved" role="status" hidden data-t="saved">Saved to your Downloads folder as disk-cleanup-selection.json. Now tell the assistant to continue.</p>
+<div class="act">
+<p id="save-note" data-t="saveNote">Pressing the button saves a small file named disk-cleanup-selection.json. If your browser asks where to save it, choose Downloads.</p>
+<button type="button" id="save" disabled aria-describedby="save-note" data-t="save">Done choosing</button>
+</div>
 </div></footer>
 <script>
 (function () {
@@ -135,30 +157,38 @@ $script:REPORT_TAIL = @'
       title: 'Choose what you no longer need',
       lead: 'This list was made on your computer and stays on your computer. The assistant cannot see file names, only how many items you pick and their total size.',
       n1: 'Nothing is deleted from this page. Ticking a box only marks an item.',
-      n2: 'Ticked items are moved to the Recycle Bin only after you press Save selection and tell the assistant to continue. You can still restore them from the Recycle Bin.',
+      n2: 'Ticked items are moved to the Recycle Bin only after you press Done choosing and tell the assistant to continue. You can still restore them from the Recycle Bin.',
       n3: 'Careful with synced folders: a file inside OneDrive, iCloud or Dropbox is also removed from the cloud and from your other devices.',
       show: 'Show', all: 'Everything', gLarge: 'Large files', gOld: 'Old items in Downloads',
       orderDown: 'Order: largest first', orderUp: 'Order: smallest first',
       caption: 'Files you may want to move to the Recycle Bin',
       hPick: 'Pick', hName: 'Name', hFolder: 'Folder', hSize: 'Size', hDate: 'Last changed', hGroup: 'Group',
       empty: 'No large files or old downloads were found. There is nothing to choose.',
-      summary: 'Selected: {n} items, {s}', unseen: ' ({n} of them hidden by the filter)', save: 'Save selection',
-      saved: 'Saved to your Downloads folder as disk-cleanup-selection.json. Now tell the assistant to continue.'
+      summary: 'Selected: {n} items, {s}', unseen: ' ({n} of them hidden by the filter)', save: 'Done choosing',
+      saveNote: 'Pressing the button saves a small file named disk-cleanup-selection.json. If your browser asks where to save it, choose Downloads.',
+      doneTitle: 'Your choice is saved',
+      doneOne: 'You chose 1 item, {size} in total.', doneMany: 'You chose {n} items, {size} in total.',
+      doneNext: 'Go back to your assistant and type:', doneWord: 'done',
+      doneCalm: 'Nothing has been moved yet. You can close this page.', change: 'Change my choice'
     },
     id: {
       kicker: 'Pembersihan disk',
       title: 'Pilih yang sudah tidak Anda perlukan',
       lead: 'Daftar ini dibuat di komputer Anda dan tetap di komputer Anda. Asisten tidak dapat melihat nama file, hanya jumlah item yang Anda pilih dan total ukurannya.',
       n1: 'Tidak ada yang dihapus dari halaman ini. Mencentang kotak hanya menandai item.',
-      n2: 'Item yang dicentang baru dipindahkan ke Recycle Bin setelah Anda menekan Simpan pilihan dan meminta asisten untuk melanjutkan. Anda masih bisa memulihkannya dari Recycle Bin.',
+      n2: 'Item yang dicentang baru dipindahkan ke Recycle Bin setelah Anda menekan Selesai memilih dan meminta asisten untuk melanjutkan. Anda masih bisa memulihkannya dari Recycle Bin.',
       n3: 'Hati-hati dengan folder yang disinkronkan: file di dalam OneDrive, iCloud, atau Dropbox juga terhapus dari cloud dan dari perangkat Anda yang lain.',
       show: 'Tampilkan', all: 'Semua', gLarge: 'File besar', gOld: 'Item lama di Downloads',
       orderDown: 'Urutan: terbesar dulu', orderUp: 'Urutan: terkecil dulu',
       caption: 'File yang mungkin ingin Anda pindahkan ke Recycle Bin',
       hPick: 'Pilih', hName: 'Nama', hFolder: 'Folder', hSize: 'Ukuran', hDate: 'Terakhir diubah', hGroup: 'Kelompok',
       empty: 'Tidak ditemukan file besar atau unduhan lama. Tidak ada yang perlu dipilih.',
-      summary: 'Dipilih: {n} item, {s}', unseen: ' ({n} di antaranya tersembunyi oleh filter)', save: 'Simpan pilihan',
-      saved: 'Tersimpan di folder Downloads sebagai disk-cleanup-selection.json. Sekarang minta asisten untuk melanjutkan.'
+      summary: 'Dipilih: {n} item, {s}', unseen: ' ({n} di antaranya tersembunyi oleh filter)', save: 'Selesai memilih',
+      saveNote: 'Tombol ini menyimpan file kecil bernama disk-cleanup-selection.json. Kalau browser bertanya mau disimpan di mana, pilih Downloads.',
+      doneTitle: 'Pilihan Anda tersimpan',
+      doneOne: 'Anda memilih 1 item, total {size}.', doneMany: 'Anda memilih {n} item, total {size}.',
+      doneNext: 'Kembali ke asisten dan ketik:', doneWord: 'selesai',
+      doneCalm: 'Belum ada yang dipindahkan. Halaman ini boleh ditutup.', change: 'Ubah pilihan'
     }
   };
   var language = String(navigator.language || 'en').toLowerCase().indexOf('id') === 0 ? 'id' : 'en';
@@ -178,7 +208,11 @@ $script:REPORT_TAIL = @'
   var order = document.getElementById('order');
   var save = document.getElementById('save');
   var summary = document.getElementById('summary');
-  var saved = document.getElementById('saved');
+  var done = document.getElementById('done');
+  var heading = document.getElementById('done-title');
+  var doneCount = document.getElementById('done-count');
+  var change = document.getElementById('change');
+  var views = [document.getElementById('choose'), document.getElementById('dock')];
   var largestFirst = true;
 
   function box(row) { return row.getElementsByTagName('input')[0]; }
@@ -205,7 +239,6 @@ $script:REPORT_TAIL = @'
     summary.textContent = line;
     save.disabled = chosen.length === 0;
     if (!valid) { save.disabled = true; }
-    saved.hidden = true;
   }
   if (rows.length === 0) {
     document.getElementById('list').hidden = true;
@@ -224,8 +257,24 @@ $script:REPORT_TAIL = @'
     rows.sort(function (a, b) { return largestFirst ? size(b) - size(a) : size(a) - size(b); });
     rows.forEach(function (row) { body.appendChild(row); });
   });
+  function showDone(finished) {
+    views.forEach(function (view) { view.hidden = finished; });
+    done.hidden = !finished;
+  }
+  function finish(count, bytes) {
+    var line = count === 1 ? words.doneOne : words.doneMany;
+    doneCount.textContent = line.replace('{n}', String(count)).replace('{size}', human(bytes));
+    showDone(true);
+    heading.focus();
+  }
+  change.addEventListener('click', function () {
+    showDone(false);
+    save.focus();
+  });
   save.addEventListener('click', function () {
-    var ids = picked().map(function (row) { return parseInt(row.getAttribute('data-id'), 10); });
+    var chosen = picked();
+    var ids = chosen.map(function (row) { return parseInt(row.getAttribute('data-id'), 10); });
+    var bytes = chosen.reduce(function (sum, row) { return sum + size(row); }, 0);
     if (ids.length === 0 || !valid) { return; }
     ids.sort(function (a, b) { return a - b; });
     var content = '{"token":"' + token + '","secret":"' + secret + '","ids":[' + ids.join(',') + ']}';
@@ -235,7 +284,7 @@ $script:REPORT_TAIL = @'
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    saved.hidden = false;
+    finish(ids.length, bytes);
   });
   refresh();
 }());

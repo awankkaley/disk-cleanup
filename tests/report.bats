@@ -148,7 +148,7 @@ ROW_PATTERN='^<tr data-id="[0-9]+" data-size="[0-9]+" data-mtime="[0-9]+" data-g
   report_lacks 'closest('
   report_lacks 'tbody tr { cursor: pointer'
   report_lacks '.checked = !'
-  [ "$(/usr/bin/grep -c 'addEventListener("click"' "$REPORT")" = "3" ]
+  [ "$(/usr/bin/grep -c 'addEventListener("click"' "$REPORT")" = "4" ]
 }
 
 @test "the summary says how many ticked items the filter hides" {
@@ -156,6 +156,45 @@ ROW_PATTERN='^<tr data-id="[0-9]+" data-size="[0-9]+" data-mtime="[0-9]+" data-g
   report_has 'hidden by the filter'
   report_has 'tersembunyi oleh filter'
   report_has '{hidden}'
-  report_has 'Simpan pilihan'
-  report_has '>Save selection</button>'
+  report_has 'Selesai memilih'
+  report_has '>Done choosing</button>'
+}
+
+@test "the button is called Done choosing and a plain note above it says where the file goes" {
+  review_for_token
+  report_lacks 'Save selection'
+  report_lacks 'Simpan pilihan'
+  report_has 'save: "Done choosing"'
+  report_has 'save: "Selesai memilih"'
+  report_has 'Pressing the button saves a small file named disk-cleanup-selection.json. If your browser asks where to save it, choose Downloads.'
+  report_has 'Tombol ini menyimpan file kecil bernama disk-cleanup-selection.json. Kalau browser bertanya mau disimpan di mana, pilih Downloads.'
+  report_has '<p id="save-note" data-i18n="saveNote">Pressing the button'
+  report_has '<button type="button" id="save" disabled aria-describedby="save-note" data-i18n="save">Done choosing</button>'
+  local note_line button_line
+  note_line=$(/usr/bin/grep -n 'id="save-note"' "$REPORT" | /usr/bin/cut -d: -f1)
+  button_line=$(/usr/bin/grep -n 'id="save" disabled' "$REPORT" | /usr/bin/cut -d: -f1)
+  [ "$button_line" = "$((note_line + 1))" ]
+}
+
+@test "after saving, a full-page done screen names the single next step in both languages" {
+  review_for_token
+  report_has '<section class="done" id="done" hidden aria-labelledby="done-title">'
+  report_has '<p class="tick" aria-hidden="true">&#10003;</p>'
+  report_has '<h2 id="done-title" tabindex="-1" data-i18n="doneTitle">Your choice is saved</h2>'
+  report_has '<p id="done-count"></p>'
+  report_has '<p class="next"><span data-i18n="doneNext">Go back to your assistant and type:</span> <strong data-i18n="doneWord">done</strong></p>'
+  report_has '<p class="calm" data-i18n="doneCalm">Nothing has been moved yet. You can close this page.</p>'
+  report_has '<button type="button" id="change" data-i18n="change">Change my choice</button>'
+  report_has 'doneTitle: "Pilihan Anda tersimpan"'
+  report_has 'doneNext: "Kembali ke asisten dan ketik:", doneWord: "selesai"'
+  report_has 'doneCalm: "Belum ada yang dipindahkan. Halaman ini boleh ditutup."'
+  report_has 'change: "Ubah pilihan"'
+  report_has 'doneOne: "You chose 1 item, {size} in total."'
+  report_has 'doneMany: "You chose {n} items, {size} in total."'
+  report_has 'doneOne: "Anda memilih 1 item, total {size}."'
+  report_has 'doneMany: "Anda memilih {n} item, total {size}."'
+  report_has 'heading.focus()'
+  report_has '@media (prefers-reduced-motion: no-preference)'
+  report_lacks 'id="saved"'
+  [ "$(/usr/bin/grep -c '<script' "$REPORT")" = "1" ]
 }

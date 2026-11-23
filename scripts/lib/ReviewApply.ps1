@@ -15,16 +15,27 @@ function Test-SelectionFileName {
     return [regex]::IsMatch([string]$Name, $script:SELECTION_NAME_PATTERN)
 }
 
-# Regular, non-link files directly inside Downloads with a selection file name,
-# newest first.
+# The folders a browser saves the selection into: Downloads, or the Desktop when
+# it asked the user where to save. A folder that is missing or is a link is not
+# searched (Get-ReviewRoot leaves it $null).
+function Get-SelectionFolderList {
+    param($Roots)
+    return @(foreach ($folder in @([string]$Roots.Downloads, [string]$Roots.Desktop)) {
+            if (-not [string]::IsNullOrEmpty($folder)) { $folder }
+        })
+}
+
+# Regular, non-link files directly inside the selection folders with a selection
+# file name, newest first across all of them.
 function Get-SelectionCandidateList {
-    param([string]$Downloads)
-    if ([string]::IsNullOrEmpty($Downloads)) { return }
-    $listing = Get-ChildEntryList -Path $Downloads
-    $files = @(foreach ($entry in $listing.Entries) {
-            if (-not ($entry -is [System.IO.FileInfo])) { continue }
-            if (Test-ReparsePoint -Info $entry) { continue }
-            if (Test-SelectionFileName -Name $entry.Name) { $entry }
+    param($Roots)
+    $files = @(foreach ($folder in @(Get-SelectionFolderList -Roots $Roots)) {
+            $listing = Get-ChildEntryList -Path $folder
+            foreach ($entry in $listing.Entries) {
+                if (-not ($entry -is [System.IO.FileInfo])) { continue }
+                if (Test-ReparsePoint -Info $entry) { continue }
+                if (Test-SelectionFileName -Name $entry.Name) { $entry }
+            }
         })
     return @($files | Sort-Object -Property LastWriteTimeUtc -Descending)
 }
@@ -89,7 +100,7 @@ function Test-SelectionOfReview {
 # The newest well-formed selection file that carries this review's token and secret.
 function Find-ReviewSelection {
     param($Roots, $Manifest)
-    $candidates = @(Get-SelectionCandidateList -Downloads $Roots.Downloads)
+    $candidates = @(Get-SelectionCandidateList -Roots $Roots)
     if ($candidates.Count -eq 0) { Invoke-CleanupFailure -Code 'SELECTION_NOT_FOUND' }
     foreach ($candidate in $candidates) {
         $selection = Read-SelectionFile -File $candidate
@@ -183,16 +194,16 @@ function Clear-ReviewManifest {
     if ($outcome.DeletedFiles -ne 1) { Invoke-CleanupFailure -Code 'INTERNAL' }
 }
 
-# Removes the report and the selection files of this review. A file in Downloads is
-# removed only when it is one of the tool's own selection files: right name, regular
-# file, well-formed content and this review's token and secret inside. Anything
-# else stays.
+# Removes the report and the selection files of this review. A file in Downloads or
+# on the Desktop is removed only when it is one of the tool's own selection files:
+# right name, regular file, well-formed content and this review's token and secret
+# inside. Anything else stays.
 function Clear-ReviewLeftover {
     param($Roots, $Manifest)
     $paths = New-Object -TypeName 'System.Collections.Generic.List[string]'
     $reportPath = Get-ReviewReportPath
     if ([System.IO.File]::Exists($reportPath)) { $paths.Add($reportPath) }
-    foreach ($candidate in @(Get-SelectionCandidateList -Downloads $Roots.Downloads)) {
+    foreach ($candidate in @(Get-SelectionCandidateList -Roots $Roots)) {
         $selection = Read-SelectionFile -File $candidate
         if (Test-SelectionOfReview -Selection $selection -Manifest $Manifest) { $paths.Add([string]$candidate.FullName) }
     }

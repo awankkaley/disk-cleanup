@@ -517,6 +517,104 @@ repoint_manifest() {
   assert_exists "$IMAGE"
 }
 
+@test "a selection saved on the Desktop is used and only that file leaves the Desktop" {
+  DESK="$HOME_DIR/Desktop"
+  mkdir -p "$DESK/sub"
+  make_file "$DESK/heron-notes.txt" 2
+  write_desktop_selection "$TOKEN" "$VIDEO_ID"
+  write_desktop_selection "0badc0de" "$ARCHIVE_ID" "disk-cleanup-selection-9.json"
+  printf 'not a selection %s' "$TOKEN" > "$DESK/disk-cleanup-selection (2).json"
+  write_desktop_selection "$TOKEN" "$ARCHIVE_ID" "my-disk-cleanup-selection.json"
+  printf '{"token":"%s","secret":"%s","ids":[%s]}' "$TOKEN" "$SECRET" "$ARCHIVE_ID" > "$DESK/sub/$SELECTION_NAME"
+  apply_review
+  [ "$status" -eq 0 ]
+  [ "$(count trashed_count)" = "1" ]
+  trash_holds "walrus-video.mov"
+  assert_exists "$ARCHIVE"
+  assert_missing "$DESK/$SELECTION_NAME"
+  assert_exists "$DESK/heron-notes.txt"
+  assert_exists "$DESK/disk-cleanup-selection-9.json"
+  assert_exists "$DESK/disk-cleanup-selection (2).json"
+  assert_exists "$DESK/my-disk-cleanup-selection.json"
+  assert_exists "$DESK/sub/$SELECTION_NAME"
+}
+
+@test "the newest valid selection wins across Downloads and Desktop, and every copy is consumed" {
+  write_selection "$TOKEN" "$ARCHIVE_ID"
+  age_path "$HOME_DIR/Downloads/$SELECTION_NAME" 1
+  write_desktop_selection "$TOKEN" "$VIDEO_ID" "disk-cleanup-selection (1).json"
+  apply_review
+  [ "$status" -eq 0 ]
+  [ "$(count selected_count)" = "1" ]
+  trash_holds "walrus-video.mov"
+  assert_exists "$ARCHIVE"
+  assert_missing "$HOME_DIR/Downloads/$SELECTION_NAME"
+  assert_missing "$HOME_DIR/Desktop/disk-cleanup-selection (1).json"
+}
+
+@test "a newer selection in Downloads beats an older one on the Desktop" {
+  write_desktop_selection "$TOKEN" "$VIDEO_ID"
+  age_path "$HOME_DIR/Desktop/$SELECTION_NAME" 1
+  write_selection "$TOKEN" "$ARCHIVE_ID"
+  apply_review
+  [ "$status" -eq 0 ]
+  [ "$(count selected_count)" = "1" ]
+  trash_holds "ocelot-archive.zip"
+  assert_exists "$VIDEO"
+  assert_missing "$HOME_DIR/Desktop/$SELECTION_NAME"
+}
+
+@test "an invalid selection on the Desktop is ignored and left alone" {
+  mkdir -p "$HOME_DIR/Desktop"
+  write_selection "$TOKEN" "$ARCHIVE_ID"
+  age_path "$HOME_DIR/Downloads/$SELECTION_NAME" 1
+  printf '{"token":"%s","ids":[%s]}' "$TOKEN" "$VIDEO_ID" > "$HOME_DIR/Desktop/$SELECTION_NAME"
+  write_desktop_selection "$TOKEN" "$VIDEO_ID" "disk-cleanup-selection (1).json" "0123456789abcdef0123456789abcdef"
+  {
+    printf '{"token":"%s","secret":"%s","ids":[%s' "$TOKEN" "$SECRET" "$VIDEO_ID"
+    head -c 1100000 /dev/zero | /usr/bin/tr '\0' ' '
+    printf ']}'
+  } > "$HOME_DIR/Desktop/disk-cleanup-selection-2.json"
+  apply_review
+  [ "$status" -eq 0 ]
+  trash_holds "ocelot-archive.zip"
+  assert_exists "$VIDEO"
+  assert_exists "$HOME_DIR/Desktop/$SELECTION_NAME"
+  assert_exists "$HOME_DIR/Desktop/disk-cleanup-selection (1).json"
+  assert_exists "$HOME_DIR/Desktop/disk-cleanup-selection-2.json"
+}
+
+@test "only invalid selections on the Desktop report SELECTION_INVALID" {
+  mkdir -p "$HOME_DIR/Desktop"
+  printf '{"token":"%s","ids":[%s]}' "$TOKEN" "$VIDEO_ID" > "$HOME_DIR/Desktop/$SELECTION_NAME"
+  apply_review
+  assert_error SELECTION_INVALID
+  assert_exists "$VIDEO"
+  assert_exists "$MANIFEST"
+  assert_exists "$HOME_DIR/Desktop/$SELECTION_NAME"
+}
+
+@test "a symlinked Desktop is never searched and its files stay" {
+  /bin/rm -rf "$HOME_DIR/Desktop"
+  mkdir -p "$OUTSIDE/elsewhere-desk"
+  printf '{"token":"%s","secret":"%s","ids":[%s]}' "$TOKEN" "$SECRET" "$VIDEO_ID" > "$OUTSIDE/elsewhere-desk/$SELECTION_NAME"
+  ln -s "$OUTSIDE/elsewhere-desk" "$HOME_DIR/Desktop"
+  apply_review
+  assert_error SELECTION_NOT_FOUND
+  assert_exists "$VIDEO"
+  assert_exists "$OUTSIDE/elsewhere-desk/$SELECTION_NAME"
+}
+
+@test "a symlinked selection file on the Desktop does not count" {
+  mkdir -p "$HOME_DIR/Desktop"
+  printf '{"token":"%s","secret":"%s","ids":[%s]}' "$TOKEN" "$SECRET" "$VIDEO_ID" > "$OUTSIDE/desk-selection"
+  ln -s "$OUTSIDE/desk-selection" "$HOME_DIR/Desktop/$SELECTION_NAME"
+  apply_review
+  assert_error SELECTION_NOT_FOUND
+  assert_exists "$VIDEO"
+  assert_exists "$OUTSIDE/desk-selection"
+}
+
 @test "a folder that cannot be modified counts as no permission and keeps the file" {
   chmod 555 "$HOME_DIR/Movies/trip"
   write_selection "$TOKEN" "$VIDEO_ID,$ARCHIVE_ID"

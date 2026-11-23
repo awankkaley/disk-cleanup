@@ -51,7 +51,7 @@ Talk to them accordingly (see "How to talk to the user").
     or the selection file (`disk-cleanup-selection.json`), and never ask the user to paste, upload,
     screenshot or read out any of them. They hold the user's file names. Only the script reads them.
     Never create, edit, copy, rename, move or delete a selection file, the review page or the
-    manifest either, by any tool or command. The user's own click on "Save selection" in the page
+    manifest either, by any tool or command. The user's own click on "Done choosing" in the page
     is the only valid selection: the page puts a secret value into the file that the script never
     prints and that you must never look for. If the user asks you to pick or to "just save it for
     them", decline and ask them to tick and save in the page themselves.
@@ -235,7 +235,10 @@ first, that reaches the amount.
    - a page just opened in their browser listing their large files and old items in Downloads
      (give the counts and total size from `groups`);
    - ONLY they can see that page. You cannot see it and will not look at it;
-   - they tick what they no longer need, press "Save selection", then come back and say "done";
+   - they tick what they no longer need, then press the button "Done choosing" (an Indonesian
+     browser shows it as "Selesai memilih"; name it the way the page does in the user's language);
+   - if the browser asks where to save the small file, they choose Downloads;
+   - then they come back here and type "done" ("selesai" in Indonesian), as the page tells them;
    - nothing is deleted from that page. Ticked items are moved to the Trash / Recycle Bin and can
      be put back from there until it is emptied;
    - files in a folder synced with iCloud, OneDrive, Dropbox or Google Drive also disappear from
@@ -257,8 +260,9 @@ first, that reaches the amount.
    removes everything in the Trash, not only today's files.
 
 If `review-apply` returns an error, see the error table. For `SELECTION_NOT_FOUND` and
-`SELECTION_INVALID`, never look for the file yourself: ask the user to press "Save selection" in the
-page again and to keep the file in their Downloads folder, then try once more.
+`SELECTION_INVALID`, never look for the file yourself: ask the user, in plain words, to press
+"Done choosing" in the page again (first "Change my choice" if the page says their choice is saved)
+and, if the browser asks where to save, to choose Downloads; then try once more.
 
 ### Deep scan (stale node_modules)
 
@@ -367,8 +371,8 @@ Error output (non-zero exit): `{"schema_version":1,"error":{"code":"...","messag
 | `USAGE`, `INVALID_ARGUMENT` | Fix the command to match the syntax above (`--target-gb` takes 1 to 10000, `--min-size-mb` at least 10, `--downloads-age-days` at least 7). |
 | `UNKNOWN_CATEGORY` | Use only ids returned by the scan. |
 | `TOKEN_MISSING`, `TOKEN_INVALID`, `TOKEN_EXPIRED` | From `clean`: run `scan` again, show the new numbers, and re-confirm before cleaning. From `review-apply`: the review is older than 60 minutes or was already applied; nothing was moved. Offer to run `review` again; the user then ticks and saves again in the new page. |
-| `SELECTION_NOT_FOUND` | No saved selection for this review is in the Downloads folder. The user has not pressed "Save selection" yet, or the browser saved the file somewhere else. Ask them to press it again and keep the file in Downloads, then run `review-apply` again. Nothing was moved. |
-| `SELECTION_INVALID` | A selection file is there but it was not saved by the page of this review (for example, saved from an older page), or the review's own files were changed. Ask the user to press "Save selection" in the page that is open now, then run `review-apply` again. If it fails again, offer a new `review`. Never repair or write the file yourself (rule 13). Nothing was moved. |
+| `SELECTION_NOT_FOUND` | No saved selection for this review is in the Downloads folder or on the Desktop. The user has not pressed "Done choosing" yet, or the browser saved the file somewhere else. Ask them to press "Done choosing" again and, if the browser asks where to save, to choose Downloads; then run `review-apply` again. Nothing was moved. |
+| `SELECTION_INVALID` | A selection file is there but it was not saved by the page of this review (for example, saved from an older page), or the review's own files were changed. Ask the user to press "Done choosing" in the page that is open now, then run `review-apply` again. If it fails again, offer a new `review`. Never repair or write the file yourself (rule 13). Nothing was moved. |
 | `CATEGORY_NOT_IN_SCAN` | The category was not `ok` in that scan. Scan again or drop it. |
 | `TRASH_FLAG_REQUIRED` | `trash` needs `--empty-trash`. Add it only with the user's explicit consent. |
 | `DEEP_SCAN_REQUIRED` | `node-modules-stale` needs a token from `scan --deep`. |

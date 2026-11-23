@@ -18,8 +18,8 @@ review_error_message() {
     TOKEN_MISSING) printf 'Run review first and pass its token with --token.' ;;
     TOKEN_INVALID) printf 'The token does not match the latest review. Run review again.' ;;
     TOKEN_EXPIRED) printf 'Run review again; the previous review is older than 60 minutes.' ;;
-    SELECTION_NOT_FOUND) printf 'No saved selection was found in the Downloads folder. Ask the user to tick items in the report and press Save selection.' ;;
-    SELECTION_INVALID) printf 'The saved selection is damaged, was not saved by the report page or belongs to another review. Ask the user to press Save selection in the latest report again, or run review again.' ;;
+    SELECTION_NOT_FOUND) printf 'No saved selection was found in the Downloads or Desktop folder. Ask the user to press Done choosing in the review page again and, if the browser asks where to save, to choose Downloads.' ;;
+    SELECTION_INVALID) printf 'The saved selection is damaged, was not saved by the report page or belongs to another review. Ask the user to press Done choosing in the latest review page again, or run review again.' ;;
     *) return 1 ;;
   esac
 }

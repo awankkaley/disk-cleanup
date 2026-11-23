@@ -27,7 +27,7 @@ code. If you can chat with an AI app and click "Allow", you can use it.
 
 4. You answer "yes", or "everything except Chrome". Only what you chose is cleaned.
 5. Still short of space? Ask to review your big files. A page opens in your own browser with your
-   largest files and old downloads. You tick what can go and press "Save selection"; those files move
+   largest files and old downloads. You tick what can go and press "Done choosing"; those files move
    to the Trash. The AI never sees that page.
 
 Nothing is ever cleaned before you have seen the list and said yes.
@@ -43,7 +43,8 @@ does not exist.
 | **Claude desktop app, Code tab** (Mac, Windows) | **Yes** | The easiest option. Needs a paid Claude plan (Pro or higher). Use a "Local" session. |
 | **ChatGPT desktop app** (the app that includes Codex; Mac, Windows) | **Yes** | Runs commands on your computer, with limits: it will ask for approval because the files to clean are outside your project folder. |
 | **Cursor** (Mac, Windows) | **Yes** | A code editor with an AI agent. Has a free tier with limited use. |
-| Claude Code, Codex CLI, GitHub Copilot CLI, Gemini CLI, OpenCode | Yes | Terminal tools for developers. See [For developers](#for-developers). |
+| **Claude Code** (terminal) | **Yes** | One command to install; see [Claude Code](#claude-code). |
+| Codex CLI, GitHub Copilot CLI, Gemini CLI, OpenCode | Yes | Terminal tools for developers. See [For developers](#for-developers). |
 | Claude desktop app, **Chat** tab; claude.ai website; Claude phone app | **No** | Skills run in a sandbox on Anthropic's side. It cannot reach your disk. |
 | Claude desktop app, **Cowork** | **No** | Works in an isolated environment and only sees folders you connect, not the places where junk lives. |
 | chatgpt.com website; ChatGPT phone app | **No** | Cloud tasks run without access to your local files. |
@@ -59,10 +60,22 @@ Only macOS and Windows are supported. Not Linux, phones or tablets.
 
 After installing, start a new chat (or restart the app) so the app notices the skill.
 
-### Claude desktop app (recommended)
+### Claude Code
 
-You need the Claude desktop app ([download links](https://code.claude.com/docs/en/desktop-quickstart))
-and a paid Claude plan.
+```bash
+npx skills add awankkaley/disk-cleanup -g
+```
+
+That is all (it needs Node.js). You can also just ask Claude: "Run `npx skills add
+awankkaley/disk-cleanup -g` for me."
+
+Optional: if you prefer one command per mode (`/disk-cleanup:scan`, `/disk-cleanup:review`, ...),
+install the plugin instead with `/plugin marketplace add awankkaley/disk-cleanup` and
+`/plugin install disk-cleanup@awankkaley-disk-cleanup`. Install one or the other, not both.
+
+### Claude desktop app
+
+These steps assume you already use the Claude desktop app with a paid Claude plan.
 
 **Way 1: upload a file, no Terminal needed**
 
@@ -142,7 +155,7 @@ curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.2.0/inst
 irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.2.0/install.ps1 | iex
 ```
 
-Developers: `npx skills add`, the Claude Code plugin and manual copying are under
+Developers: more installer options and manual copying are under
 [Other ways to install](#other-ways-to-install).
 
 ## How to use
@@ -192,9 +205,12 @@ this part is done by you, not by the AI.
    files in Downloads that have not been changed for 90 days or more, with name, folder, size and
    date. You can sort by size and filter by group.
 3. Tick what you no longer need. The page shows a running total ("selected: 12 items, 8.4 GB").
-4. Press **Save selection**. Your browser saves a small file named `disk-cleanup-selection.json`
-   into your Downloads folder. Leave it there.
-5. Go back to the AI app and say "done".
+4. Press **Done choosing** (in an Indonesian browser: **Selesai memilih**). Your browser saves a
+   small file named `disk-cleanup-selection.json`; that file is how your choice reaches the script.
+   If the browser asks where to save it, choose **Downloads**. The page then shows "Your choice is
+   saved". Changed your mind? Press "Change my choice", fix the ticks and press the button again;
+   the newest file counts.
+5. Go back to the AI app and type "done".
 6. The files you ticked are moved to the Trash (macOS) or Recycle Bin (Windows). The assistant tells
    you how many files and how much space.
 
@@ -204,6 +220,8 @@ Things worth knowing:
   directly. It is never sent to the AI or anywhere else; the page loads nothing from the internet.
   The assistant is told only how many items were found and their total size, and afterwards how
   many were moved. The saved selection file holds two codes and item numbers, no file names.
+- **Downloads or Desktop.** The script looks for the saved file directly inside your Downloads
+  folder and, if you saved it there by mistake, directly on your Desktop. Nowhere else.
 - **Nothing is deleted from the page.** Ticking and saving does nothing by itself. Files move only
   after you say "done" in the chat.
 - **You can get files back.** They are in the Trash or Recycle Bin. On a Mac, open the Trash and
@@ -284,7 +302,7 @@ other command during a cleanup.
 
 - The AI must not explore your disk on its own (`ls`, `find`, `du`, `Get-ChildItem` and so on).
 - The AI must not open the review page, the list behind it, or your saved selection.
-- The AI must not create or change a selection file. Only your own click on "Save selection" counts.
+- The AI must not create or change a selection file. Only your own click on "Done choosing" counts.
 - The AI must not ask you to paste file names, and must not pick files for you.
 - The AI must not read the optional deletion log or the script's state folder.
 - The AI must not delete anything itself or clean categories you did not approve.
@@ -295,7 +313,7 @@ The script cannot see who clicked. What it does instead:
 
 - Each review gets a second, longer code (the selection secret). The script never prints it, so the
   AI is never given it. It exists only inside the review page and the list behind it, and the page
-  writes it into the file that "Save selection" saves. A selection file without the right secret is
+  writes it into the file that "Done choosing" saves. A selection file without the right secret is
   refused and nothing is moved.
 - The list behind the page carries a checksum. If the list was changed after the review, nothing is
   moved. Each file is also checked again against the rule it was listed under.
@@ -382,10 +400,10 @@ Not through this skill; the script only reports totals, and the review page is o
 browser, not by the AI. The skill also instructs the AI not to look around on its own or open the
 review files, but that part is an instruction, not a lock. See [Privacy guarantees](#privacy-guarantees).
 
-**I pressed "Save selection" and said "done", but the assistant cannot find my selection.**
-Your browser saved the file somewhere other than Downloads, or asked where to save and you
-cancelled. Press "Save selection" again and save it in your Downloads folder with the name it
-suggests.
+**I pressed "Done choosing" and said "done", but the assistant cannot find my selection.**
+Your browser saved the file somewhere other than Downloads or the Desktop, or asked where to save
+and you cancelled. Press "Done choosing" again (use "Change my choice" first if the page shows
+"Your choice is saved") and, if asked, choose Downloads and keep the name it suggests.
 
 **I freed files with the review but my free space did not change.**
 They are in the Trash. Space comes back when you empty it.
@@ -464,13 +482,8 @@ The plugin also has `/disk-cleanup:help`. A size works after any scan command: `
 
 ### skills CLI
 
-Needs Node.js.
-
-```bash
-npx skills add awankkaley/disk-cleanup -g
-```
-
-`-g` installs it for your user account. Add `-a claude-code` (or `codex`, `cursor`, `gemini-cli`, ...)
+The command from [Claude Code](#claude-code) works for other agents too. `-g` installs it for your
+user account. Add `-a claude-code` (or `codex`, `cursor`, `gemini-cli`, ...)
 to choose agents, or let the CLI ask you. It installs the skill itself; the `/disk-cleanup` command
 files for Gemini CLI and OpenCode come only with the one-line installer.
 
@@ -496,12 +509,7 @@ Agent names: `claude`, `codex`, `cursor`, `gemini`, `copilot`, `opencode`, `amp`
 
 ### Claude Code plugin from the terminal
 
-```text
-/plugin marketplace add awankkaley/disk-cleanup
-/plugin install disk-cleanup@awankkaley-disk-cleanup
-```
-
-Or from your shell: `claude plugin marketplace add awankkaley/disk-cleanup`, then
+The two `/plugin` commands are in [Claude Code](#claude-code). Or from your shell: `claude plugin marketplace add awankkaley/disk-cleanup`, then
 `claude plugin install disk-cleanup@awankkaley-disk-cleanup`. On Claude Code 2.1.275 or later one step
 is enough: `/plugin install disk-cleanup --marketplace awankkaley/disk-cleanup`.
 
@@ -613,7 +621,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\cleanup.ps1 review-a
 | `scan` | `--deep` also look for stale `node_modules` (slow). `--target-gb N` (1 to 10000) add a `suggestion`: the safe categories, cheapest to rebuild first, that reach N GB. `--min-age-days N` age limit for temp files and logs, default 7. `--projects-dir PATH` where the deep scan looks, default your home folder. |
 | `clean` | `--token ID` from the scan (required). `--categories id1,id2` (required). `--empty-trash` needed for `trash`. `--min-idle-days N` for `node-modules-stale`, default and minimum 30. `--log` write a local list of deleted paths. |
 | `review` | `--min-size-mb N` smallest file listed as large, default 100, minimum 10. `--downloads-age-days N` age of items in Downloads, default 90, minimum 7. Writes the page and opens it; prints counts and a review token. |
-| `review-apply` | `--token ID` from the review (required). Reads `disk-cleanup-selection.json` from the Downloads folder, accepts it only with the secret the review page wrote into it, and moves the selected files to the Trash / Recycle Bin. |
+| `review-apply` | `--token ID` from the review (required). Reads `disk-cleanup-selection.json` from the Downloads folder or, failing that, the Desktop (the newest valid file wins), accepts it only with the secret the review page wrote into it, and moves the selected files to the Trash / Recycle Bin. |
 | `--help`, `--version` | |
 
 A scan token is valid for 15 minutes and one `clean`. A review token is separate, valid for 60

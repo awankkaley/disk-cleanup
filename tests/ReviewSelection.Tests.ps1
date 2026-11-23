@@ -8,8 +8,10 @@ BeforeAll {
     }
 
     function Add-RawSelection {
-        param($Sandbox, [string]$Content, [string]$Name = 'disk-cleanup-selection.json')
-        $path = Join-Path -Path $Sandbox.Downloads -ChildPath $Name
+        param($Sandbox, [string]$Content, [string]$Name = 'disk-cleanup-selection.json', [string]$Folder = '')
+        if ($Folder.Length -eq 0) { $Folder = $Sandbox.Downloads }
+        [void][System.IO.Directory]::CreateDirectory($Folder)
+        $path = Join-Path -Path $Folder -ChildPath $Name
         [System.IO.File]::WriteAllText($path, $Content, (New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false))
         return $path
     }
@@ -168,6 +170,107 @@ Describe 'review-apply selection file and token' {
             Test-Path -LiteralPath $script:files.Holiday | Should -BeTrue
             Test-Path -LiteralPath $script:files.OldInstaller | Should -BeFalse
             Test-Path -LiteralPath $foreign | Should -BeTrue
+        }
+    }
+
+    Context 'a selection saved on the Desktop' {
+        It 'uses a selection on the Desktop and removes only that file from the Desktop' {
+            $desk = $script:sandbox.Desktop
+            $mine = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:token -Ids @(1) -Folder $desk
+            $notes = Join-Path -Path $desk -ChildPath 'zqdesk-notes.txt'
+            Add-SandboxFile -Path $notes -SizeBytes 40 -AgeDays 3
+            $foreign = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:otherToken -Ids @(2) -Name 'disk-cleanup-selection-9.json' -Folder $desk
+            $broken = Add-RawSelection -Sandbox $script:sandbox -Content ('zqnot a selection ' + $script:token) -Name 'disk-cleanup-selection (2).json' -Folder $desk
+            $lookalike = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:token -Ids @(2) -Name 'zqdisk-cleanup-selection.json' -Folder $desk
+            $nested = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:token -Ids @(2) -Folder (Join-Path -Path $desk -ChildPath 'zqsub')
+            $deskBefore = @([System.IO.Directory]::GetFiles($desk)).Count
+
+            $run = Invoke-Apply -Token $script:token
+
+            $run.ExitCode | Should -Be 0
+            $run.Data.trashed_count | Should -Be 1
+            Test-Path -LiteralPath $script:files.Holiday | Should -BeFalse
+            Test-Path -LiteralPath $script:files.Archive | Should -BeTrue
+            Test-Path -LiteralPath $mine | Should -BeFalse
+            Test-Path -LiteralPath $notes | Should -BeTrue
+            Test-Path -LiteralPath $foreign | Should -BeTrue
+            Test-Path -LiteralPath $broken | Should -BeTrue
+            Test-Path -LiteralPath $lookalike | Should -BeTrue
+            Test-Path -LiteralPath $nested | Should -BeTrue
+            @([System.IO.Directory]::GetFiles($desk)).Count | Should -Be ($deskBefore - 1)
+            Assert-PrivateOutput -Json $run.Json -Sandbox $script:sandbox
+        }
+
+        It 'lets the newest valid selection win across Downloads and the Desktop, and consumes every copy' {
+            $older = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:token -Ids @(2)
+            $newer = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:token -Ids @(1) -Name 'disk-cleanup-selection (1).json' -Folder $script:sandbox.Desktop
+            [System.IO.File]::SetLastWriteTimeUtc($older, [System.DateTime]::UtcNow.AddMinutes(-10))
+            [System.IO.File]::SetLastWriteTimeUtc($newer, [System.DateTime]::UtcNow.AddMinutes(-1))
+
+            $run = Invoke-Apply -Token $script:token
+
+            $run.Data.selected_count | Should -Be 1
+            Test-Path -LiteralPath $script:files.Holiday | Should -BeFalse
+            Test-Path -LiteralPath $script:files.Archive | Should -BeTrue
+            Test-Path -LiteralPath $older | Should -BeFalse
+            Test-Path -LiteralPath $newer | Should -BeFalse
+        }
+
+        It 'prefers a newer selection in Downloads over an older one on the Desktop' {
+            $older = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:token -Ids @(1) -Folder $script:sandbox.Desktop
+            $newer = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:token -Ids @(2)
+            [System.IO.File]::SetLastWriteTimeUtc($older, [System.DateTime]::UtcNow.AddMinutes(-10))
+            [System.IO.File]::SetLastWriteTimeUtc($newer, [System.DateTime]::UtcNow.AddMinutes(-1))
+
+            $run = Invoke-Apply -Token $script:token
+
+            $run.Data.selected_count | Should -Be 1
+            Test-Path -LiteralPath $script:files.Archive | Should -BeFalse
+            Test-Path -LiteralPath $script:files.Holiday | Should -BeTrue
+            Test-Path -LiteralPath $older | Should -BeFalse
+        }
+
+        It 'ignores invalid selections on the Desktop and leaves them alone' {
+            $valid = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:token -Ids @(2)
+            [System.IO.File]::SetLastWriteTimeUtc($valid, [System.DateTime]::UtcNow.AddMinutes(-10))
+            $desk = $script:sandbox.Desktop
+            $forged = Add-RawSelection -Sandbox $script:sandbox -Content ('{"token":"' + $script:token + '","ids":[1]}') -Folder $desk
+            $wrong = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:token -Ids @(1) -Name 'disk-cleanup-selection (1).json' -Secret '0123456789abcdef0123456789abcdef' -Folder $desk
+            $padding = New-Object -TypeName string -ArgumentList ([char]32), 1048577
+            $huge = Add-RawSelection -Sandbox $script:sandbox -Content ('{"token":"' + $script:token + '","secret":"' + $script:secret + '","ids":[1]}' + $padding) -Name 'disk-cleanup-selection-2.json' -Folder $desk
+
+            $run = Invoke-Apply -Token $script:token
+
+            $run.ExitCode | Should -Be 0
+            $run.Data.trashed_count | Should -Be 1
+            Test-Path -LiteralPath $script:files.Archive | Should -BeFalse
+            Test-Path -LiteralPath $script:files.Holiday | Should -BeTrue
+            Test-Path -LiteralPath $forged | Should -BeTrue
+            Test-Path -LiteralPath $wrong | Should -BeTrue
+            Test-Path -LiteralPath $huge | Should -BeTrue
+        }
+
+        It 'reports SELECTION_INVALID when only invalid selections are on the Desktop' {
+            $forged = Add-RawSelection -Sandbox $script:sandbox -Content ('{"token":"' + $script:token + '","ids":[1]}') -Folder $script:sandbox.Desktop
+
+            $run = Invoke-Apply -Token $script:token
+
+            $run.Data.error.code | Should -Be 'SELECTION_INVALID'
+            Should -Invoke Send-FileToRecycleBin -Times 0 -Exactly
+            Test-Path -LiteralPath $forged | Should -BeTrue
+            Test-Path -LiteralPath $script:sandbox.Manifest | Should -BeTrue
+        }
+
+        It 'does not look through a Desktop that is a junction' {
+            $null = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:token -Ids @(1) -Folder $script:sandbox.Desktop
+            $moved = Join-Path -Path $script:sandbox.Outside -ChildPath 'zqdesktop-moved'
+            Move-SandboxFolderBehindJunction -Folder $script:sandbox.Desktop -NewLocation $moved
+
+            $run = Invoke-Apply -Token $script:token
+
+            $run.Data.error.code | Should -Be 'SELECTION_NOT_FOUND'
+            Should -Invoke Send-FileToRecycleBin -Times 0 -Exactly
+            Test-Path -LiteralPath (Join-Path -Path $moved -ChildPath 'disk-cleanup-selection.json') | Should -BeTrue
         }
     }
 

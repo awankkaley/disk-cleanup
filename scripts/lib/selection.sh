@@ -1,6 +1,7 @@
 #!/bin/bash
-# The selection file the report's Save button puts into Downloads. Its text is
-# matched against one strict pattern and never executed.
+# The selection file the report's "Done choosing" button saves. Browsers put it
+# into Downloads, or onto the Desktop when they ask where to save and the user
+# picks it. Its text is matched against one strict pattern and never executed.
 
 readonly SELECTION_STEM="disk-cleanup-selection"
 readonly SELECTION_SUFFIX=".json"
@@ -57,24 +58,28 @@ selection_matches() {
 }
 
 # Finds the newest selection file for TOKEN and SECRET directly inside
-# Downloads and loads its ids. SELECTION_FILES collects every file saved for
-# this review. Returns 1 when no selection file exists, 2 when none of them
-# is usable; files that do not match are left where they are.
+# Downloads or the Desktop and loads its ids. A folder that is a symlink is not
+# searched. SELECTION_FILES collects every file saved for this review in both
+# folders. Returns 1 when no selection file exists, 2 when none of them is
+# usable; files that do not match are left where they are.
 selection_locate() {
-  local token=$1 secret=$2 folder="$HOME_PHYS/$DOWNLOADS_FOLDER" file mtime newest=-1 ids="" named=0
+  local token=$1 secret=$2 folder file mtime newest=-1 ids="" named=0
   SELECTION_FILES=()
-  is_real_dir "$folder" && can_list "$folder" || return 1
-  while IFS= read -r -d '' file; do
-    is_selection_name "${file##*/}" || continue
-    named=1
-    selection_matches "$file" "$token" "$secret" || continue
-    SELECTION_FILES+=("$file")
-    mtime=$(stat -f '%m' "$file" 2> /dev/null) || continue
-    is_uint "$mtime" && [ "$mtime" -gt "$newest" ] || continue
-    newest=$mtime
-    ids=$SELECTION_IDS
-  done < <(find -P "$folder" -xdev -mindepth 1 -maxdepth 1 -type f \
-    -name "$SELECTION_STEM*$SELECTION_SUFFIX" -print0 2> /dev/null)
+  for folder in "${SELECTION_FOLDERS[@]}"; do
+    folder="$HOME_PHYS/$folder"
+    if ! is_real_dir "$folder" || ! can_list "$folder"; then continue; fi
+    while IFS= read -r -d '' file; do
+      is_selection_name "${file##*/}" || continue
+      named=1
+      selection_matches "$file" "$token" "$secret" || continue
+      SELECTION_FILES+=("$file")
+      mtime=$(stat -f '%m' "$file" 2> /dev/null) || continue
+      is_uint "$mtime" && [ "$mtime" -gt "$newest" ] || continue
+      newest=$mtime
+      ids=$SELECTION_IDS
+    done < <(find -P "$folder" -xdev -mindepth 1 -maxdepth 1 -type f \
+      -name "$SELECTION_STEM*$SELECTION_SUFFIX" -print0 2> /dev/null)
+  done
   [ "$named" = 1 ] || return 1
   [ "$newest" -ge 0 ] || return 2
   SELECTION_IDS=$ids

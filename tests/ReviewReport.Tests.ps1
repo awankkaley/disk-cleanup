@@ -175,9 +175,10 @@ Describe 'review report' {
         $scriptText = Get-ScriptBlockText -Html $script:html
 
         $scriptText.Contains("body.addEventListener('change', refresh);") | Should -BeTrue
-        ([regex]::Matches($scriptText, "addEventListener\('click'")).Count | Should -Be 2
+        ([regex]::Matches($scriptText, "addEventListener\('click'")).Count | Should -Be 3
         $scriptText | Should -Match "order\.addEventListener\('click'"
         $scriptText | Should -Match "save\.addEventListener\('click'"
+        $scriptText | Should -Match "change\.addEventListener\('click'"
         $scriptText | Should -Not -Match '\.checked\s*=[^=]'
         $scriptText | Should -Not -Match '(?i)onclick'
         $script:html | Should -Not -Match '\.name label\{[^}]*display:block'
@@ -202,7 +203,7 @@ Describe 'review report' {
 
     It 'explains in plain words that nothing is deleted here and warns about synced folders' {
         $script:html | Should -Match 'Nothing is deleted from this page'
-        $script:html | Should -Match 'moved to the Recycle Bin only after you press Save selection'
+        $script:html | Should -Match 'moved to the Recycle Bin only after you press Done choosing'
         $script:html | Should -Match 'OneDrive, iCloud or Dropbox'
         $script:html | Should -Match 'removed from the cloud and from your other devices'
     }
@@ -213,7 +214,7 @@ Describe 'review report' {
         $scriptText.Contains("'{`"token`":`"' + token + '`",`"secret`":`"' + secret + '`",`"ids`":[' + ids.join(',') + ']}'") | Should -BeTrue
         $scriptText.Contains("link.download = 'disk-cleanup-selection.json';") | Should -BeTrue
         $scriptText | Should -Match 'new Blob\('
-        $script:html.Contains('<button type="button" id="save" disabled data-t="save">Save selection</button>') | Should -BeTrue
+        $script:html.Contains('<button type="button" id="save" disabled aria-describedby="save-note" data-t="save">Done choosing</button>') | Should -BeTrue
         $scriptText | Should -Match 'save\.disabled = chosen\.length === 0;'
     }
 
@@ -221,13 +222,50 @@ Describe 'review report' {
         $scriptText = Get-ScriptBlockText -Html $script:html
 
         $scriptText | Should -Match "navigator\.language \|\| 'en'\)\.toLowerCase\(\)\.indexOf\('id'\) === 0"
-        $scriptText | Should -Match 'Simpan pilihan'
+        $scriptText | Should -Match 'Selesai memilih'
         $scriptText | Should -Match 'Tidak ada yang dihapus dari halaman ini'
         $keys = @([regex]::Matches($script:html, 'data-t="([A-Za-z0-9]+)"') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
         $keys.Count | Should -BeGreaterThan 15
         foreach ($key in $keys) {
             ([regex]::Matches($scriptText, ('\b' + $key + ': ''')).Count) | Should -Be 2
         }
+    }
+
+    It 'calls the button Done choosing and says right above it where the small file goes' {
+        $scriptText = Get-ScriptBlockText -Html $script:html
+        $lines = @($script:html -split "`n")
+        $noteLine = [array]::FindIndex([string[]]$lines, [System.Predicate[string]] { param($line) $line.StartsWith('<p id="save-note"') })
+        $buttonLine = [array]::FindIndex([string[]]$lines, [System.Predicate[string]] { param($line) $line.StartsWith('<button type="button" id="save"') })
+
+        $script:html | Should -Not -Match 'Save selection'
+        $script:html | Should -Not -Match 'Simpan pilihan'
+        $scriptText.Contains("save: 'Done choosing'") | Should -BeTrue
+        $scriptText.Contains("save: 'Selesai memilih'") | Should -BeTrue
+        $script:html.Contains('<p id="save-note" data-t="saveNote">Pressing the button saves a small file named disk-cleanup-selection.json. If your browser asks where to save it, choose Downloads.</p>') | Should -BeTrue
+        $scriptText.Contains("saveNote: 'Tombol ini menyimpan file kecil bernama disk-cleanup-selection.json. Kalau browser bertanya mau disimpan di mana, pilih Downloads.'") | Should -BeTrue
+        $noteLine | Should -BeGreaterThan 0
+        $buttonLine | Should -Be ($noteLine + 1)
+    }
+
+    It 'replaces the list with a full-page done screen that names the single next step' {
+        $scriptText = Get-ScriptBlockText -Html $script:html
+
+        $script:html.Contains('<section class="done" id="done" hidden aria-labelledby="done-title">') | Should -BeTrue
+        $script:html.Contains('<p class="tick" aria-hidden="true">&#10003;</p>') | Should -BeTrue
+        $script:html.Contains('<h2 id="done-title" tabindex="-1" data-t="doneTitle">Your choice is saved</h2>') | Should -BeTrue
+        $script:html.Contains('<p id="done-count"></p>') | Should -BeTrue
+        $script:html.Contains('<p class="next"><span data-t="doneNext">Go back to your assistant and type:</span> <strong data-t="doneWord">done</strong></p>') | Should -BeTrue
+        $script:html.Contains('<p class="calm" data-t="doneCalm">Nothing has been moved yet. You can close this page.</p>') | Should -BeTrue
+        $script:html.Contains('<button type="button" id="change" data-t="change">Change my choice</button>') | Should -BeTrue
+        $script:html | Should -Not -Match 'id="saved"'
+        $scriptText.Contains("doneTitle: 'Pilihan Anda tersimpan'") | Should -BeTrue
+        $scriptText.Contains("doneNext: 'Kembali ke asisten dan ketik:', doneWord: 'selesai'") | Should -BeTrue
+        $scriptText.Contains("doneCalm: 'Belum ada yang dipindahkan. Halaman ini boleh ditutup.', change: 'Ubah pilihan'") | Should -BeTrue
+        $scriptText.Contains("doneOne: 'You chose 1 item, {size} in total.', doneMany: 'You chose {n} items, {size} in total.'") | Should -BeTrue
+        $scriptText.Contains("doneOne: 'Anda memilih 1 item, total {size}.', doneMany: 'Anda memilih {n} item, total {size}.'") | Should -BeTrue
+        $scriptText.Contains('heading.focus();') | Should -BeTrue
+        $scriptText.Contains('finish(ids.length, bytes);') | Should -BeTrue
+        $script:html | Should -Match '@media \(prefers-reduced-motion:no-preference\)\{[^\n]*\.done:not\(\[hidden\]\) \.card\{animation'
     }
 
     It 'is accessible: labelled controls, a live summary, a table caption and both colour schemes' {

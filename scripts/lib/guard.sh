@@ -7,6 +7,8 @@ readonly BLOCK_BYTES=512
 readonly TEMP_ROOT_PREFIX="/private/var/folders"
 readonly TRASH_NAME=".Trash"
 readonly DOWNLOADS_FOLDER="Downloads"
+# Where the browser may save the review's selection file.
+readonly SELECTION_FOLDERS=("$DOWNLOADS_FOLDER" "Desktop")
 readonly TREE_MODE_NAME="node_modules"
 readonly ACCOUNT_HOME_KEY="NFSHomeDirectory"
 readonly PASSWD_HOME_FIELD=9
@@ -156,10 +158,15 @@ relative_is_guarded() {
 }
 
 # The one exception inside a protected folder: the selection file this tool
-# asked the browser to save, directly in Downloads, under its fixed name.
+# asked the browser to save, directly in Downloads or on the Desktop, under
+# its fixed name.
 selection_location_is_allowed() {
-  local name=${1##*/}
-  [ "$1" = "$HOME_PHYS/$DOWNLOADS_FOLDER/$name" ] && is_selection_name "$name"
+  local name=${1##*/} folder
+  is_selection_name "$name" || return 1
+  for folder in "${SELECTION_FOLDERS[@]}"; do
+    [ "$1" = "$HOME_PHYS/$folder/$name" ] && return 0
+  done
+  return 1
 }
 
 location_is_allowed() {
@@ -213,9 +220,9 @@ guard_resolve() {
 #   empty-dir  directory PATH itself, only when nothing is inside it
 #   file       the regular file PATH
 #   old-files  regular files inside PATH not modified for more than DAYS days
-#   selection  the saved selection file PATH in Downloads, only while its
-#              content names the review token given as third argument and
-#              carries the selection secret given as fourth
+#   selection  the saved selection file PATH in Downloads or on the Desktop,
+#              only while its content names the review token given as third
+#              argument and carries the selection secret given as fourth
 guarded_delete() {
   local mode=${1:-} path=${2:-} days=${3:-} secret=${4:-} physical sink leftover
   local selector=()

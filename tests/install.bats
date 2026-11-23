@@ -603,7 +603,7 @@ snapshot_home() {
   grep -q '^13\. Never open, read, print, search or summarise the review page' "$skill"
   grep -q '^14\. Never ask the user to type or paste file or folder names' "$skill"
   grep -q '^16\. Never run `review` and `review-apply` in the same turn\.' "$skill"
-  for phrase in 'report_location_hint' 'SELECTION_NOT_FOUND' 'SELECTION_INVALID' 'Save selection' \
+  for phrase in 'report_location_hint' 'SELECTION_NOT_FOUND' 'SELECTION_INVALID' 'Done choosing' \
     'space_freed_when_trash_emptied' 'ONLY they can see that page'; do
     grep -qF "$phrase" "$skill"
   done

@@ -83,29 +83,47 @@ tr[data-group="old-downloads"] .tag { color: var(--old); }
 .dock { position: fixed; left: 0; right: 0; bottom: 0; background: var(--card); border-top: 2px solid var(--ink); box-shadow: var(--shadow); }
 .dock .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.5rem; padding-top: 0.9rem; padding-bottom: 0.9rem; }
 #summary { margin: 0; flex: 1; min-width: 12rem; font: 600 1.15rem/1.3 var(--display); }
-#saved { margin: 0; flex-basis: 100%; color: var(--accent); font-weight: 600; }
+.act { display: flex; flex-direction: column; align-items: flex-end; gap: 0.4rem; max-width: 27rem; }
+#save-note { margin: 0; font-size: 0.85rem; color: var(--muted); text-align: right; }
 #save { font: inherit; font-weight: 700; color: var(--accent-ink); background: var(--accent); border: 0; border-radius: 4px; padding: 0.8rem 1.6rem; cursor: pointer; transition: transform 150ms, opacity 150ms; }
 #save:hover:not(:disabled) { transform: translateY(-1px); }
 #save:disabled { opacity: 0.45; cursor: not-allowed; }
+body.finished { padding-bottom: 0; }
+.done { min-height: 100vh; display: grid; place-items: center; padding: 3rem 1.5rem; }
+.done .card { width: 100%; max-width: 38rem; background: var(--card); border: 1px solid var(--rule); border-top: 6px solid var(--accent); box-shadow: var(--shadow); padding: 2.5rem 2rem 2rem; text-align: center; }
+.tick { width: 5.5rem; height: 5.5rem; margin: 0 auto 1.25rem; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font: 700 3.2rem/5.5rem var(--text); }
+.done h2 { margin: 0 0 0.5rem; font: 600 clamp(1.9rem, 1.3rem + 2.4vw, 2.8rem)/1.1 var(--display); }
+#done-count { margin: 0 0 1.75rem; color: var(--muted); font-size: 1.05rem; }
+.next { margin: 0 0 1rem; padding: 1.25rem 1rem; background: var(--picked); border-radius: 6px; font: 600 clamp(1.3rem, 1rem + 1.2vw, 1.75rem)/1.4 var(--display); }
+.next strong { display: inline-block; padding: 0 0.6rem; border: 2px solid var(--accent); border-radius: 6px; color: var(--accent); font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.calm { margin: 0 0 1.75rem; color: var(--muted); }
+#change { font: inherit; font-size: 0.95rem; color: var(--ink); background: transparent; border: 1px solid var(--rule); border-radius: 4px; padding: 0.55rem 1.1rem; cursor: pointer; }
+#change:hover { border-color: var(--ink); }
+@media (prefers-reduced-motion: no-preference) {
+  .done:not([hidden]) .card { animation: rise 320ms cubic-bezier(0.16, 1, 0.3, 1); }
+  .done:not([hidden]) .tick { animation: pop 420ms cubic-bezier(0.16, 1, 0.3, 1); }
+}
+@keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes pop { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: none; } }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 [hidden] { display: none !important; }
 @media (max-width: 760px) { .group, th.kind { display: none; } .folder { max-width: 10rem; } }
-@media (max-width: 560px) { .date, th.when { display: none; } .wrap { padding: 0 1rem; } }
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+@media (max-width: 560px) { .date, th.when { display: none; } .wrap { padding: 0 1rem; } .act { align-items: stretch; } #save-note { text-align: left; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
 </head>
 <body>
-<header class="masthead"><div class="wrap">
+<header class="masthead" id="intro"><div class="wrap">
 <p class="kicker" data-i18n="kicker">Disk cleanup &middot; Review</p>
 <h1 data-i18n="title">Choose what to move to the Trash</h1>
 <p class="lede" data-i18n="lede">These are the largest files and the oldest downloads on this Mac. Tick the ones you no longer need.</p>
 <ul class="notes">
 <li data-i18n="noteSafe">Nothing is deleted from this page.</li>
-<li data-i18n="noteFlow">Ticked items are moved to the Trash only after you press Save selection and tell the assistant to continue. Until you empty the Trash, you can put them back.</li>
+<li data-i18n="noteFlow">Ticked items are moved to the Trash only after you press Done choosing and tell the assistant to continue. Until you empty the Trash, you can put them back.</li>
 <li data-i18n="noteCloud">Files in folders synced with iCloud, OneDrive or Dropbox are also removed from the cloud and from your other devices.</li>
 </ul>
 </div></header>
-<main class="wrap">
+<main class="wrap" id="choose">
 <div class="tools" role="group" aria-label="Filter and sort" id="tools">
 <button type="button" class="chip" data-filter="all" aria-pressed="true" data-i18n="filterAll">All</button>
 <button type="button" class="chip" data-filter="large-files" aria-pressed="false" data-i18n="filterLarge">Large files</button>
@@ -129,10 +147,20 @@ readonly REPORT_TAIL='</tbody>
 </table>
 <p class="empty" id="empty" hidden data-i18n="empty">No large files or old downloads were found. There is nothing to choose here.</p>
 </main>
-<footer class="dock"><div class="wrap">
+<section class="done" id="done" hidden aria-labelledby="done-title"><div class="card">
+<p class="tick" aria-hidden="true">&#10003;</p>
+<h2 id="done-title" tabindex="-1" data-i18n="doneTitle">Your choice is saved</h2>
+<p id="done-count"></p>
+<p class="next"><span data-i18n="doneNext">Go back to your assistant and type:</span> <strong data-i18n="doneWord">done</strong></p>
+<p class="calm" data-i18n="doneCalm">Nothing has been moved yet. You can close this page.</p>
+<button type="button" id="change" data-i18n="change">Change my choice</button>
+</div></section>
+<footer class="dock" id="dock"><div class="wrap">
 <p id="summary" role="status" aria-live="polite"></p>
-<button type="button" id="save" disabled data-i18n="save">Save selection</button>
-<p id="saved" hidden data-i18n="saved">Saved to your Downloads folder as disk-cleanup-selection.json. Now go back to the assistant and tell it to continue.</p>
+<div class="act">
+<p id="save-note" data-i18n="saveNote">Pressing the button saves a small file named disk-cleanup-selection.json. If your browser asks where to save it, choose Downloads.</p>
+<button type="button" id="save" disabled aria-describedby="save-note" data-i18n="save">Done choosing</button>
+</div>
 </div></footer>
 <script>
 (function () {
@@ -142,30 +170,38 @@ readonly REPORT_TAIL='</tbody>
       kicker: "Disk cleanup · Review", title: "Choose what to move to the Trash",
       lede: "These are the largest files and the oldest downloads on this Mac. Tick the ones you no longer need.",
       noteSafe: "Nothing is deleted from this page.",
-      noteFlow: "Ticked items are moved to the Trash only after you press Save selection and tell the assistant to continue. Until you empty the Trash, you can put them back.",
+      noteFlow: "Ticked items are moved to the Trash only after you press Done choosing and tell the assistant to continue. Until you empty the Trash, you can put them back.",
       noteCloud: "Files in folders synced with iCloud, OneDrive or Dropbox are also removed from the cloud and from your other devices.",
       filterAll: "All", filterLarge: "Large files", filterOld: "Old items in Downloads",
       sortDesc: "Largest first", sortAsc: "Smallest first", caption: "Files you can choose to move to the Trash",
       colPick: "Pick", colName: "Name", colFolder: "Folder", colSize: "Size", colDate: "Last changed", colGroup: "Kind",
       groupLarge: "Large file", groupOld: "Old download", summaryNone: "Nothing ticked yet.",
       summaryOne: "Selected: 1 item, {size}", summary: "Selected: {n} items, {size}",
-      summaryHidden: " ({hidden} of them hidden by the filter)", save: "Save selection",
-      saved: "Saved to your Downloads folder as disk-cleanup-selection.json. Now go back to the assistant and tell it to continue.",
+      summaryHidden: " ({hidden} of them hidden by the filter)", save: "Done choosing",
+      saveNote: "Pressing the button saves a small file named disk-cleanup-selection.json. If your browser asks where to save it, choose Downloads.",
+      doneTitle: "Your choice is saved",
+      doneOne: "You chose 1 item, {size} in total.", doneMany: "You chose {n} items, {size} in total.",
+      doneNext: "Go back to your assistant and type:", doneWord: "done",
+      doneCalm: "Nothing has been moved yet. You can close this page.", change: "Change my choice",
       empty: "No large files or old downloads were found. There is nothing to choose here."
     },
     id: {
       kicker: "Pembersihan disk · Tinjauan", title: "Pilih yang akan dipindahkan ke Tong Sampah",
       lede: "Ini adalah file terbesar dan unduhan terlama di Mac ini. Centang yang sudah tidak Anda perlukan.",
       noteSafe: "Tidak ada yang dihapus dari halaman ini.",
-      noteFlow: "Item yang dicentang baru dipindahkan ke Tong Sampah setelah Anda menekan Simpan pilihan dan meminta asisten untuk melanjutkan. Selama Tong Sampah belum dikosongkan, item masih bisa dikembalikan.",
+      noteFlow: "Item yang dicentang baru dipindahkan ke Tong Sampah setelah Anda menekan Selesai memilih dan meminta asisten untuk melanjutkan. Selama Tong Sampah belum dikosongkan, item masih bisa dikembalikan.",
       noteCloud: "File di folder yang disinkronkan dengan iCloud, OneDrive, atau Dropbox juga terhapus dari cloud dan dari perangkat Anda yang lain.",
       filterAll: "Semua", filterLarge: "File besar", filterOld: "Item lama di Unduhan",
       sortDesc: "Terbesar dulu", sortAsc: "Terkecil dulu", caption: "File yang dapat Anda pilih untuk dipindahkan ke Tong Sampah",
       colPick: "Pilih", colName: "Nama", colFolder: "Folder", colSize: "Ukuran", colDate: "Terakhir diubah", colGroup: "Jenis",
       groupLarge: "File besar", groupOld: "Unduhan lama", summaryNone: "Belum ada yang dicentang.",
       summaryOne: "Dipilih: 1 item, {size}", summary: "Dipilih: {n} item, {size}",
-      summaryHidden: " ({hidden} di antaranya tersembunyi oleh filter)", save: "Simpan pilihan",
-      saved: "Tersimpan di folder Unduhan sebagai disk-cleanup-selection.json. Sekarang kembali ke asisten dan minta untuk melanjutkan.",
+      summaryHidden: " ({hidden} di antaranya tersembunyi oleh filter)", save: "Selesai memilih",
+      saveNote: "Tombol ini menyimpan file kecil bernama disk-cleanup-selection.json. Kalau browser bertanya mau disimpan di mana, pilih Downloads.",
+      doneTitle: "Pilihan Anda tersimpan",
+      doneOne: "Anda memilih 1 item, total {size}.", doneMany: "Anda memilih {n} item, total {size}.",
+      doneNext: "Kembali ke asisten dan ketik:", doneWord: "selesai",
+      doneCalm: "Belum ada yang dipindahkan. Halaman ini boleh ditutup.", change: "Ubah pilihan",
       empty: "Tidak ada file besar atau unduhan lama yang ditemukan. Tidak ada yang perlu dipilih."
     }
   };
@@ -180,7 +216,11 @@ readonly REPORT_TAIL='</tbody>
   var save = document.getElementById("save");
   var sort = document.getElementById("sort");
   var summary = document.getElementById("summary");
-  var saved = document.getElementById("saved");
+  var done = document.getElementById("done");
+  var heading = document.getElementById("done-title");
+  var doneCount = document.getElementById("done-count");
+  var change = document.getElementById("change");
+  var views = ["intro", "choose", "dock"].map(function (id) { return document.getElementById(id); });
   var descending = true;
 
   function number(value, digits) {
@@ -236,7 +276,6 @@ readonly REPORT_TAIL='</tbody>
     summary.textContent = line.replace("{n}", String(count)).replace("{size}", sizeText(bytes))
       .replace("{hidden}", String(hidden));
     save.disabled = count === 0 || !/^[0-9a-f]{8}$/.test(token) || !/^[0-9a-f]{32}$/.test(secret);
-    saved.hidden = true;
   }
   function filter(group) {
     rows.forEach(function (row) {
@@ -253,11 +292,27 @@ readonly REPORT_TAIL='</tbody>
     rows.forEach(function (row) { body.appendChild(row); });
     sort.textContent = descending ? text.sortDesc : text.sortAsc;
   }
+  function showDone(finished) {
+    views.forEach(function (view) { view.hidden = finished; });
+    done.hidden = !finished;
+    document.body.classList.toggle("finished", finished);
+  }
+  function finish(count, bytes) {
+    var line = count === 1 ? text.doneOne : text.doneMany;
+    doneCount.textContent = line.replace("{n}", String(count)).replace("{size}", sizeText(bytes));
+    showDone(true);
+    heading.focus();
+  }
+  function reopen() {
+    showDone(false);
+    save.focus();
+  }
   function download() {
-    var ids = rows.filter(function (row) { return boxOf(row).checked; })
-      .map(function (row) { return Number(row.getAttribute("data-id")); })
+    var ticked = rows.filter(function (row) { return boxOf(row).checked; });
+    var ids = ticked.map(function (row) { return Number(row.getAttribute("data-id")); })
       .sort(function (a, b) { return a - b; });
-    if (ids.length === 0) { return; }
+    var bytes = ticked.reduce(function (sum, row) { return sum + sizeOf(row); }, 0);
+    if (ids.length === 0 || save.disabled) { return; }
     var content = "{\"token\":\"" + token + "\",\"secret\":\"" + secret + "\",\"ids\":[" + ids.join(",") + "]}";
     var anchor = document.createElement("a");
     var address = URL.createObjectURL(new Blob([content], { type: "application/json" }));
@@ -267,7 +322,7 @@ readonly REPORT_TAIL='</tbody>
     anchor.click();
     anchor.remove();
     setTimeout(function () { URL.revokeObjectURL(address); }, 1000);
-    saved.hidden = false;
+    finish(ids.length, bytes);
   }
 
   translate();
@@ -279,6 +334,7 @@ readonly REPORT_TAIL='</tbody>
   });
   sort.addEventListener("click", reorder);
   save.addEventListener("click", download);
+  change.addEventListener("click", reopen);
 }());
 </script>
 </body>

@@ -28,6 +28,7 @@ function Initialize-Sandbox {
         StateDir  = Join-Path -Path $homeDir -ChildPath 'AppData\Local\disk-cleanup'
         StateFile = Join-Path -Path $homeDir -ChildPath 'AppData\Local\disk-cleanup\state'
         Downloads = Join-Path -Path $homeDir -ChildPath 'Downloads'
+        Desktop   = Join-Path -Path $homeDir -ChildPath 'Desktop'
         Manifest  = Join-Path -Path $homeDir -ChildPath 'AppData\Local\disk-cleanup\review-manifest'
         Report    = Join-Path -Path $homeDir -ChildPath 'AppData\Local\disk-cleanup\review.html'
         Recycle   = Join-Path -Path $base -ChildPath 'zqrecycle'
@@ -362,20 +363,22 @@ function Get-SandboxSecret {
     return [string]$found.Groups[1].Value
 }
 
-# Writes what the Save selection button of the report downloads. Without -Secret the
-# secret of the review on disk is used; without a review, one that matches nothing.
+# Writes what the Done choosing button of the report downloads, into Downloads unless
+# -Folder names another folder (the Desktop). Without -Secret the secret of the review
+# on disk is used; without a review, one that matches nothing.
 function Add-SandboxSelection {
     param(
         $Sandbox, [string]$Token, [int[]]$Ids = @(), [string]$Name = 'disk-cleanup-selection.json',
-        [string]$Secret = ''
+        [string]$Secret = '', [string]$Folder = ''
     )
+    if ($Folder.Length -eq 0) { $Folder = $Sandbox.Downloads }
     if (($Secret.Length -eq 0) -and [System.IO.File]::Exists($Sandbox.Manifest)) {
         $Secret = Get-SandboxSecret -Manifest $Sandbox.Manifest
     }
     if ($Secret.Length -eq 0) { $Secret = $script:FOREIGN_SELECTION_SECRET }
     $content = '{"token":"' + $Token + '","secret":"' + $Secret + '","ids":[' + ($Ids -join ',') + ']}'
-    $path = Join-Path -Path $Sandbox.Downloads -ChildPath $Name
-    [void][System.IO.Directory]::CreateDirectory($Sandbox.Downloads)
+    $path = Join-Path -Path $Folder -ChildPath $Name
+    [void][System.IO.Directory]::CreateDirectory($Folder)
     [System.IO.File]::WriteAllText($path, $content, (New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false))
     return $path
 }

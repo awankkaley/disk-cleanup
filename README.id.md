@@ -27,7 +27,7 @@ perlu bisa ngoding. Asal bisa ngobrol dengan aplikasi AI dan klik "Allow", kamu 
 
 4. Kamu jawab "ya", atau "semua kecuali Chrome". Yang dibersihkan hanya yang kamu pilih.
 5. Masih kurang lega? Minta tinjau file besar. Sebuah halaman terbuka di browsermu sendiri, isinya
-   file-file terbesar dan unduhan lama. Centang yang boleh dibuang, tekan "Save selection", lalu
+   file-file terbesar dan unduhan lama. Centang yang boleh dibuang, tekan "Selesai memilih", lalu
    file-file itu dipindahkan ke Tempat Sampah (Trash). AI tidak pernah melihat halaman itu.
 
 Tidak ada yang dibersihkan sebelum kamu melihat daftarnya dan bilang ya.
@@ -43,7 +43,8 @@ jalan di server perusahaannya, dan dari sana disk kamu tidak kelihatan.
 | **Aplikasi desktop Claude, tab Code** (Mac, Windows) | **Bisa** | Pilihan paling gampang. Perlu paket Claude berbayar (Pro ke atas). Pakai sesi "Local". |
 | **Aplikasi desktop ChatGPT** (yang di dalamnya ada Codex; Mac, Windows) | **Bisa** | Menjalankan perintah di komputermu, dengan batasan: dia akan minta persetujuan dulu karena file yang dibersihkan ada di luar folder proyek. |
 | **Cursor** (Mac, Windows) | **Bisa** | Editor kode yang punya agen AI. Ada paket gratis dengan pemakaian terbatas. |
-| Claude Code, Codex CLI, GitHub Copilot CLI, Gemini CLI, OpenCode | Bisa | Alat berbasis terminal untuk developer. Lihat [Untuk developer](#untuk-developer). |
+| **Claude Code** (terminal) | **Bisa** | Pasangnya cukup satu perintah; lihat [Claude Code](#claude-code). |
+| Codex CLI, GitHub Copilot CLI, Gemini CLI, OpenCode | Bisa | Alat berbasis terminal untuk developer. Lihat [Untuk developer](#untuk-developer). |
 | Aplikasi desktop Claude, tab **Chat**; situs claude.ai; aplikasi Claude di HP | **Tidak** | Skill dijalankan di sandbox milik Anthropic, yang tidak bisa menjangkau disk kamu. |
 | Aplikasi desktop Claude, **Cowork** | **Tidak** | Bekerja di lingkungan terisolasi dan hanya melihat folder yang kamu hubungkan, bukan tempat sampah-sampah itu berada. |
 | Situs chatgpt.com; aplikasi ChatGPT di HP | **Tidak** | Tugas di cloud berjalan tanpa akses ke file di komputermu. |
@@ -59,10 +60,22 @@ Yang didukung hanya macOS dan Windows. Linux, HP, dan tablet tidak.
 
 Setelah terpasang, mulai obrolan baru (atau tutup lalu buka lagi aplikasinya) supaya skill-nya terbaca.
 
-### Aplikasi desktop Claude (disarankan)
+### Claude Code
 
-Kamu perlu aplikasi desktop Claude ([tautan unduhnya](https://code.claude.com/docs/en/desktop-quickstart))
-dan paket Claude berbayar.
+```bash
+npx skills add awankkaley/disk-cleanup -g
+```
+
+Sudah, itu saja (perlu Node.js). Kamu juga bisa langsung minta ke Claude: "Tolong jalankan
+`npx skills add awankkaley/disk-cleanup -g`."
+
+Opsional: kalau lebih suka satu perintah per mode (`/disk-cleanup:scan`, `/disk-cleanup:review`, ...),
+pasang versi plugin-nya dengan `/plugin marketplace add awankkaley/disk-cleanup` lalu
+`/plugin install disk-cleanup@awankkaley-disk-cleanup`. Pilih salah satu, jangan dua-duanya.
+
+### Aplikasi desktop Claude
+
+Langkah berikut menganggap kamu sudah memakai aplikasi desktop Claude dengan paket Claude berbayar.
 
 **Cara 1: unggah satu file, tanpa Terminal**
 
@@ -145,7 +158,7 @@ curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.2.0/inst
 irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.2.0/install.ps1 | iex
 ```
 
-Untuk developer: `npx skills add`, plugin Claude Code, dan salin manual ada di
+Untuk developer: opsi installer lainnya dan cara salin manual ada di
 [Cara pasang lainnya](#cara-pasang-lainnya).
 
 ## Cara memakai
@@ -196,10 +209,12 @@ kamu yang tahu. Karena itu bagian ini dikerjakan kamu sendiri, bukan AI.
    kamu, dan file di Downloads yang sudah 90 hari atau lebih tidak berubah, lengkap dengan nama,
    folder, ukuran, dan tanggal. Bisa diurutkan menurut ukuran dan disaring per kelompok.
 3. Centang yang sudah tidak kamu perlukan. Totalnya langsung terlihat ("dipilih: 12 item, 8,4 GB").
-4. Tekan tombol **Save selection** (kalau browsermu berbahasa Indonesia, halamannya ikut berbahasa
-   Indonesia). Browser akan menyimpan file kecil bernama `disk-cleanup-selection.json` ke folder
-   Downloads. Biarkan saja di situ.
-5. Kembali ke aplikasi AI dan bilang "sudah".
+4. Tekan tombol **Selesai memilih** (di browser berbahasa Inggris: **Done choosing**). Browser akan
+   menyimpan file kecil bernama `disk-cleanup-selection.json`; lewat file itulah pilihanmu sampai ke
+   skrip. Kalau browser bertanya mau disimpan di mana, pilih **Downloads**. Setelah itu halaman
+   menampilkan "Pilihan Anda tersimpan". Berubah pikiran? Tekan "Ubah pilihan", perbaiki centangnya,
+   lalu tekan tombolnya lagi; file yang paling baru yang dipakai.
+5. Kembali ke aplikasi AI dan ketik "selesai".
 6. File yang kamu centang dipindahkan ke Tempat Sampah (Trash di macOS, Recycle Bin di Windows).
    Asisten memberi tahu berapa file dan berapa besar totalnya.
 
@@ -210,8 +225,10 @@ Yang perlu kamu tahu:
   dari internet. Yang disampaikan ke asisten hanya jumlah item yang ditemukan dan total ukurannya,
   lalu setelahnya berapa yang dipindahkan. File pilihan yang tersimpan hanya berisi dua kode dan
   nomor-nomor item, tanpa nama file.
+- **Downloads atau Desktop.** Skrip mencari file yang tersimpan langsung di dalam folder Downloads,
+  dan kalau kamu tidak sengaja menyimpannya di Desktop, langsung di Desktop. Tidak di tempat lain.
 - **Tidak ada yang terhapus dari halaman itu.** Mencentang dan menyimpan belum mengubah apa-apa.
-  File baru dipindahkan setelah kamu bilang "sudah" di obrolan.
+  File baru dipindahkan setelah kamu bilang "selesai" di obrolan.
 - **File masih bisa dikembalikan.** Semuanya ada di Tempat Sampah atau Recycle Bin. Di Mac, buka
   Trash lalu seret filenya keluar, atau klik kanan dan pilih "Put Back" kalau macOS menyediakannya.
   Di Windows, buka Recycle Bin, klik kanan filenya, pilih "Restore".
@@ -297,8 +314,8 @@ perintah lain yang muncul selama bersih-bersih.
 
 - AI tidak boleh menjelajahi disk kamu sendiri (`ls`, `find`, `du`, `Get-ChildItem`, dan sejenisnya).
 - AI tidak boleh membuka halaman review, daftar di baliknya, maupun pilihan yang kamu simpan.
-- AI tidak boleh membuat atau mengubah file pilihan. Yang sah hanya klik tombol "Save selection"
-  ("Simpan pilihan") darimu sendiri.
+- AI tidak boleh membuat atau mengubah file pilihan. Yang sah hanya klik tombol "Selesai memilih"
+  ("Done choosing") darimu sendiri.
 - AI tidak boleh memintamu menempelkan nama file, dan tidak boleh memilihkan file untukmu.
 - AI tidak boleh membaca log penghapusan (yang opsional) maupun folder state milik skrip.
 - AI tidak boleh menghapus apa pun sendiri atau membersihkan kategori yang tidak kamu setujui.
@@ -309,8 +326,8 @@ Skrip tidak bisa melihat siapa yang mengeklik. Yang dilakukannya sebagai gantiny
 
 - Setiap review punya kode kedua yang lebih panjang (kode rahasia pilihan). Skrip tidak pernah
   mencetaknya, jadi AI tidak pernah diberi kode itu. Kode ini hanya ada di dalam halaman review dan
-  daftar di baliknya, dan halaman itulah yang menuliskannya ke file yang disimpan tombol "Save
-  selection". File pilihan tanpa kode rahasia yang benar ditolak dan tidak ada yang dipindahkan.
+  daftar di baliknya, dan halaman itulah yang menuliskannya ke file yang disimpan tombol "Selesai
+  memilih". File pilihan tanpa kode rahasia yang benar ditolak dan tidak ada yang dipindahkan.
 - Daftar di balik halaman diberi checksum. Kalau daftar itu diubah setelah review dibuat, tidak ada
   yang dipindahkan. Setiap file juga diperiksa ulang terhadap aturan yang membuatnya masuk daftar.
 
@@ -400,10 +417,11 @@ browsermu, bukan oleh AI. Skill ini juga memerintahkan AI agar tidak melihat-lih
 membuka file review, tetapi bagian itu sifatnya instruksi, bukan gembok. Lihat
 [Jaminan privasi](#jaminan-privasi).
 
-**Saya sudah tekan "Save selection" dan bilang "sudah", tapi asisten bilang pilihannya tidak ketemu.**
-Browsermu menyimpan filenya di tempat selain Downloads, atau sempat bertanya mau disimpan di mana
-lalu kamu batalkan. Tekan "Save selection" sekali lagi dan simpan di folder Downloads dengan nama
-yang disarankan.
+**Saya sudah tekan "Selesai memilih" dan bilang "selesai", tapi asisten bilang pilihannya tidak ketemu.**
+Browsermu menyimpan filenya di tempat selain Downloads atau Desktop, atau sempat bertanya mau
+disimpan di mana lalu kamu batalkan. Tekan "Selesai memilih" sekali lagi (kalau halamannya
+menampilkan "Pilihan Anda tersimpan", tekan "Ubah pilihan" dulu), dan kalau ditanya, pilih
+Downloads dan biarkan namanya seperti yang disarankan.
 
 **Sudah buang file lewat review, kok ruang kosongnya tidak bertambah?**
 Filenya masih di Tempat Sampah. Ruangnya baru kembali setelah Tempat Sampah dikosongkan.
@@ -483,13 +501,7 @@ Plugin juga punya `/disk-cleanup:help`. Ukuran bisa ditulis di belakang perintah
 
 ### skills CLI
 
-Butuh Node.js.
-
-```bash
-npx skills add awankkaley/disk-cleanup -g
-```
-
-`-g` memasangnya untuk akun kamu. Tambahkan `-a claude-code` (atau `codex`, `cursor`, `gemini-cli`, ...)
+Perintah di bagian [Claude Code](#claude-code) juga berlaku untuk agent lain. `-g` memasangnya untuk akun kamu. Tambahkan `-a claude-code` (atau `codex`, `cursor`, `gemini-cli`, ...)
 untuk memilih agent, atau biarkan CLI yang bertanya. Yang terpasang skill-nya saja; file perintah
 `/disk-cleanup` untuk Gemini CLI dan OpenCode hanya ikut lewat installer satu baris.
 
@@ -516,12 +528,7 @@ Nama agent: `claude`, `codex`, `cursor`, `gemini`, `copilot`, `opencode`, `amp`,
 
 ### Plugin Claude Code lewat terminal
 
-```text
-/plugin marketplace add awankkaley/disk-cleanup
-/plugin install disk-cleanup@awankkaley-disk-cleanup
-```
-
-Atau dari shell: `claude plugin marketplace add awankkaley/disk-cleanup`, lalu
+Dua perintah `/plugin`-nya ada di bagian [Claude Code](#claude-code). Atau dari shell: `claude plugin marketplace add awankkaley/disk-cleanup`, lalu
 `claude plugin install disk-cleanup@awankkaley-disk-cleanup`. Di Claude Code 2.1.275 ke atas cukup satu
 langkah: `/plugin install disk-cleanup --marketplace awankkaley/disk-cleanup`.
 
@@ -638,7 +645,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\cleanup.ps1 review-a
 | `scan` | `--deep` ikut mencari `node_modules` yang menganggur (lambat). `--target-gb N` (1 sampai 10000) menambahkan `suggestion`: kategori aman, dari yang paling murah dibangun ulang, yang cukup untuk mencapai N GB. `--min-age-days N` batas umur file sementara dan log, bawaan 7. `--projects-dir PATH` lokasi yang ditelusuri deep scan, bawaannya folder home. |
 | `clean` | `--token ID` dari hasil scan (wajib). `--categories id1,id2` (wajib). `--empty-trash` diperlukan untuk `trash`. `--min-idle-days N` untuk `node-modules-stale`, bawaan sekaligus minimum 30. `--log` menulis daftar path yang dihapus ke file lokal. |
 | `review` | `--min-size-mb N` ukuran terkecil yang dianggap file besar, bawaan 100, minimum 10. `--downloads-age-days N` umur item di Downloads, bawaan 90, minimum 7. Menulis halaman review lalu membukanya; yang dicetak hanya jumlah dan token review. |
-| `review-apply` | `--token ID` dari hasil review (wajib). Membaca `disk-cleanup-selection.json` dari folder Downloads, hanya menerimanya kalau memuat kode rahasia yang ditulis halaman review, lalu memindahkan file yang dipilih ke Tempat Sampah / Recycle Bin. |
+| `review-apply` | `--token ID` dari hasil review (wajib). Membaca `disk-cleanup-selection.json` dari folder Downloads atau, kalau tidak ada, dari Desktop (file valid yang paling baru yang dipakai), hanya menerimanya kalau memuat kode rahasia yang ditulis halaman review, lalu memindahkan file yang dipilih ke Tempat Sampah / Recycle Bin. |
 | `--help`, `--version` | |
 
 Token scan berlaku 15 menit dan untuk satu kali `clean`. Token review terpisah, berlaku 60 menit dan

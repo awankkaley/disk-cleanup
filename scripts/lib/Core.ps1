@@ -37,8 +37,8 @@ $script:ERROR_MESSAGES = @{
     'DEEP_SCAN_REQUIRED'   = 'node-modules-stale requires a token from a scan run with --deep.'
     'INVALID_ARGUMENT'     = 'A flag value is not valid. Run with --help to see the accepted values.'
     'UNSUPPORTED_PLATFORM' = 'This script supports Windows only. Use cleanup.sh on macOS.'
-    'SELECTION_NOT_FOUND'  = 'No saved selection was found in the Downloads folder. Ask the user to press Save selection in the review page first.'
-    'SELECTION_INVALID'    = 'The saved selection is damaged or belongs to another review. Ask the user to save the selection again.'
+    'SELECTION_NOT_FOUND'  = 'No saved selection was found in the Downloads or Desktop folder. Ask the user to press Done choosing in the review page again and, if the browser asks where to save, to choose Downloads.'
+    'SELECTION_INVALID'    = 'The saved selection is damaged or belongs to another review. Ask the user to press Done choosing in the latest review page again.'
     'INTERNAL'             = 'Unexpected internal error. Nothing further was changed.'
 }
 
