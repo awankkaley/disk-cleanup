@@ -2,7 +2,11 @@
 # The review command: lists large files and old downloads for the human-only
 # report. Only counts and totals ever reach stdout. Nothing is moved here.
 
-readonly REVIEW_FORMAT=1
+readonly REVIEW_FORMAT=2
+# The manifest starts with exactly these lines, in this order; every line
+# after them is an item.
+readonly REVIEW_HEADER_KEYS=("format" "token" "epoch" "secret" "min_size_mb" "downloads_age_days" "integrity")
+readonly DIGEST_HEX_DIGITS=64
 readonly REVIEW_MANIFEST_NAME="review-manifest"
 readonly REVIEW_REPORT_NAME="review.html"
 readonly REVIEW_MAX_ITEMS=500
@@ -23,6 +27,15 @@ readonly REVIEW_DENIED_MARK="-1"
 readonly TAB=$'\t'
 readonly CONTROL_CHARACTER_PATTERN='*[[:cntrl:]]*'
 readonly HIDDEN_PATTERN='.*'
+# UTF-8 bytes of the characters that reorder or hide text on screen (U+202A to
+# U+202E, U+2066 to U+2069, U+200E, U+200F, U+061C). A name holding one could
+# show the user something other than the file it stands for, so such files
+# are never offered.
+readonly BIDI_CONTROL_SEQUENCES=(
+  $'\xe2\x80\xaa' $'\xe2\x80\xab' $'\xe2\x80\xac' $'\xe2\x80\xad' $'\xe2\x80\xae'
+  $'\xe2\x81\xa6' $'\xe2\x81\xa7' $'\xe2\x81\xa8' $'\xe2\x81\xa9'
+  $'\xe2\x80\x8e' $'\xe2\x80\x8f' $'\xd8\x9c'
+)
 # Folders the walk never enters and review-apply never accepts: top-level
 # system folders, dependency folders, and packages that only look like folders.
 readonly REVIEW_PRUNED_TOP=("Library" "AppData")
@@ -38,11 +51,18 @@ REVIEW_REPORT=""
 REVIEW_PRUNE=()
 REVIEW_SUMMARY=()
 FIELDS=()
+REVIEW_LIVE=0
 RV_TOKEN=""
 RV_EPOCH=""
+RV_SECRET=""
+RV_MIN_SIZE_MB=""
+RV_DOWNLOADS_AGE=""
+RV_INTEGRITY=""
+RV_ITEMS=""
 RV_ALLOCATED=()
 RV_LOGICAL=()
 RV_MTIME=()
+RV_GROUP=()
 RV_PATH=()
 
 review_paths() {
@@ -81,15 +101,17 @@ review_walk() {
 
 # Turns walk lines into "allocated<TAB>size<TAB>mtime<TAB>group<TAB>/path".
 review_classify() {
-  awk -v min_bytes="$((OPT_MIN_SIZE_MB * BYTES_PER_MB))" -v block="$BLOCK_BYTES" \
+  REVIEW_BIDI=$(printf '%s\n' "${BIDI_CONTROL_SEQUENCES[@]}") awk -v min_bytes="$((OPT_MIN_SIZE_MB * BYTES_PER_MB))" -v block="$BLOCK_BYTES" \
     -v now="$1" -v old_seconds="$((OPT_DOWNLOADS_AGE * SECONDS_PER_DAY))" \
     -v large="$REVIEW_GROUP_LARGE" -v old="$REVIEW_GROUP_DOWNLOADS" \
     -v downloads="/$DOWNLOADS_FOLDER/" -v mark="$REVIEW_DENIED_MARK" '
+    BEGIN { marks = split(ENVIRON["REVIEW_BIDI"], bidi, "\n") }
     $0 == mark { print; next }
     !/^[0-9]+ [0-9]+ [0-9]+ \.\/./ || /\t/ { next }
     {
       path = $0
       sub(/^[0-9]+ [0-9]+ [0-9]+ \./, "", path)
+      for (i = 1; i <= marks; i++) if (bidi[i] != "" && index(path, bidi[i])) next
       bytes = $1 * block
       inside = substr(path, length(downloads) + 1)
       if ($1 == 0) next
@@ -157,15 +179,56 @@ review_file_is_writable() {
   [ ! -e "$1" ] || [ -f "$1" ]
 }
 
-# review_manifest_write TOKEN EPOCH ITEMS
+# review_seal SECRET ITEMS: prints the SHA-256 over the secret line followed
+# by the item lines. Only this text is hashed, never a file of the user.
+review_seal() {
+  local digest
+  digest=$(printf '%s\n%s%s' "$1" "$2" "${2:+$'\n'}" | shasum -a 256)
+  digest=${digest%% *}
+  is_hex_of_length "$digest" "$DIGEST_HEX_DIGITS" && printf '%s' "$digest"
+}
+
+# review_manifest_write TOKEN EPOCH SECRET ITEMS
+# shellcheck disable=SC2153 # OPT_* are the parsed options from cleanup.sh
 review_manifest_write() {
+  local digest
   ensure_private_dir "$STATE_DIR" && review_file_is_writable "$REVIEW_MANIFEST" || return 1
+  digest=$(review_seal "$3" "$4") || return 1
   (
     umask 077
-    printf 'format=%s\ntoken=%s\nepoch=%s\n%s%s' "$REVIEW_FORMAT" "$1" "$2" "$3" "${3:+$'\n'}" \
+    printf 'format=%s\ntoken=%s\nepoch=%s\nsecret=%s\nmin_size_mb=%s\ndownloads_age_days=%s\nintegrity=%s\n%s%s' \
+      "$REVIEW_FORMAT" "$1" "$2" "$3" "$OPT_MIN_SIZE_MB" "$OPT_DOWNLOADS_AGE" "$digest" "$4" "${4:+$'\n'}" \
       > "$REVIEW_MANIFEST"
   ) 2> /dev/null || return 1
   chmod "$PRIVATE_FILE_MODE" "$REVIEW_MANIFEST" 2> /dev/null
+}
+
+# review_header_assign NUMBER LINE: line NUMBER must be the header key that
+# belongs at that position.
+review_header_assign() {
+  local key=${2%%=*} value=${2#*=}
+  [ "$key" = "${REVIEW_HEADER_KEYS[$1 - 1]}" ] || return 1
+  case "$key" in
+    format) [ "$value" = "$REVIEW_FORMAT" ] || return 1 ;;
+    token) RV_TOKEN=$value ;;
+    epoch) RV_EPOCH=$value ;;
+    secret) RV_SECRET=$value ;;
+    min_size_mb) RV_MIN_SIZE_MB=$value ;;
+    downloads_age_days) RV_DOWNLOADS_AGE=$value ;;
+    integrity) RV_INTEGRITY=$value ;;
+  esac
+}
+
+# The recorded options obey the same limits as the command line, so an edited
+# header cannot loosen the rules below what review itself accepts.
+review_header_is_valid() {
+  is_token "$RV_TOKEN" && is_uint "$RV_EPOCH" && is_secret "$RV_SECRET" || return 1
+  is_uint_between "$RV_MIN_SIZE_MB" "$MIN_SIZE_MB_FLOOR" "$MAX_SIZE_MB" || return 1
+  is_day_count "$RV_DOWNLOADS_AGE" "$DOWNLOADS_AGE_DAYS_FLOOR" || return 1
+  is_hex_of_length "$RV_INTEGRITY" "$DIGEST_HEX_DIGITS" || return 1
+  RV_EPOCH=$((10#$RV_EPOCH))
+  RV_MIN_SIZE_MB=$((10#$RV_MIN_SIZE_MB))
+  RV_DOWNLOADS_AGE=$((10#$RV_DOWNLOADS_AGE))
 }
 
 review_manifest_item() {
@@ -173,38 +236,75 @@ review_manifest_item() {
   [ $# -eq 6 ] || return 0
   is_uint "$id" && [ "${#id}" -le "$REVIEW_MAX_ID_DIGITS" ] || return 0
   is_uint "$2" && is_uint "$3" && is_uint "$4" && [ -n "$6" ] || return 0
+  [ "$5" = "$REVIEW_GROUP_LARGE" ] || [ "$5" = "$REVIEW_GROUP_DOWNLOADS" ] || return 0
   index=$((10#$id))
   [ "$index" -ge 1 ] && [ "$index" -le "$REVIEW_MAX_ITEMS" ] || return 0
   RV_ALLOCATED[index]=$2
   RV_LOGICAL[index]=$3
   RV_MTIME[index]=$4
+  RV_GROUP[index]=$5
   RV_PATH[index]=$6
 }
 
 # Loads RV_* from the manifest; the content is validated, never executed.
+# RV_ITEMS keeps every line after the header exactly as read, for the seal.
 # shellcheck disable=SC2034 # RV_* are read by apply.sh
 review_manifest_read() {
-  local line
-  RV_TOKEN="" RV_EPOCH="" RV_ALLOCATED=() RV_LOGICAL=() RV_MTIME=() RV_PATH=()
+  local line number=0
+  RV_TOKEN="" RV_EPOCH="" RV_SECRET="" RV_MIN_SIZE_MB="" RV_DOWNLOADS_AGE="" RV_INTEGRITY="" RV_ITEMS=""
+  RV_ALLOCATED=() RV_LOGICAL=() RV_MTIME=() RV_GROUP=() RV_PATH=()
   [ -f "$REVIEW_MANIFEST" ] && [ ! -L "$REVIEW_MANIFEST" ] && [ -O "$REVIEW_MANIFEST" ] || return 1
   [ ! -L "$STATE_DIR" ] || return 1
-  while IFS= read -r line; do
-    case "$line" in
-      token=*) RV_TOKEN=${line#token=} ;;
-      epoch=*) RV_EPOCH=${line#epoch=} ;;
-      [0-9]*"$TAB"*)
-        split_tabs "$line"
-        review_manifest_item "${FIELDS[@]}"
-        ;;
-    esac
+  while IFS= read -r line || [ -n "$line" ]; do
+    number=$((number + 1))
+    if [ "$number" -le "${#REVIEW_HEADER_KEYS[@]}" ]; then
+      review_header_assign "$number" "$line" || return 1
+      continue
+    fi
+    RV_ITEMS="$RV_ITEMS$line"$'\n'
+    split_tabs "$line"
+    review_manifest_item "${FIELDS[@]}"
   done < "$REVIEW_MANIFEST"
-  is_token "$RV_TOKEN" && is_uint "$RV_EPOCH"
+  [ "$number" -ge "${#REVIEW_HEADER_KEYS[@]}" ] && review_header_is_valid
 }
 
-# The manifest goes first: without it the token is gone for good.
+# True while the item lines are the ones review wrote. This raises the bar
+# for tampering; it is not a proof, because the secret sits in the same file.
+review_manifest_is_sealed() {
+  [ "$(review_seal "$RV_SECRET" "${RV_ITEMS%$'\n'}")" = "$RV_INTEGRITY" ]
+}
+
+# Removes the manifest and the report. Fails while the manifest is still
+# there: without it the token is gone for good.
 review_discard() {
-  guarded_delete file "$REVIEW_MANIFEST" || return 1
+  local verdict=0
+  if [ -e "$REVIEW_MANIFEST" ]; then guarded_delete file "$REVIEW_MANIFEST" || verdict=1; fi
   [ ! -e "$REVIEW_REPORT" ] || guarded_delete file "$REVIEW_REPORT"
+  return "$verdict"
+}
+
+# Runs at the start of every command and loads the current review. One that
+# is older than its lifetime, damaged or dated in the future is discarded on
+# the spot, so the file names it lists never stay on disk even when the user
+# never comes back to it. REVIEW_LIVE marks a usable review; an expired one
+# keeps its token in RV_TOKEN so review-apply can name the reason.
+# shellcheck disable=SC2034 # REVIEW_LIVE is read by apply.sh
+review_sweep() {
+  local now age
+  REVIEW_LIVE=0
+  review_paths
+  if review_manifest_read; then
+    now=$(date +%s)
+    age=$((now - RV_EPOCH))
+    if [ "$age" -ge 0 ] && [ "$age" -lt "$REVIEW_TOKEN_TTL_SECONDS" ]; then
+      REVIEW_LIVE=1
+      return 0
+    fi
+    [ "$age" -ge 0 ] || RV_TOKEN=""
+  else
+    RV_TOKEN=""
+  fi
+  review_discard
   return 0
 }
 
@@ -226,6 +326,9 @@ review_path_is_acceptable() {
   case "$1" in "$HOME_PHYS"/?*) ;; *) return 1 ;; esac
   relative=${1#"$HOME_PHYS"/}
   case "$relative" in *[[:cntrl:]]*) return 1 ;; esac
+  for folder in "${BIDI_CONTROL_SEQUENCES[@]}"; do
+    case "$relative" in *"$folder"*) return 1 ;; esac
+  done
   case "/$relative/" in *//* | */.*) return 1 ;; esac
   case "$relative" in */*) folders=${relative%/*} ;; *) return 0 ;; esac
   list_contains "${folders%%/*}" "${REVIEW_PRUNED_TOP[@]}" && return 1
@@ -266,7 +369,7 @@ emit_review() {
 }
 
 run_review() {
-  local now listing items="" token opened=0
+  local now listing items="" token secret opened=0
   review_paths
   ensure_private_dir "$STATE_DIR" || fail INTERNAL
   now=$(date +%s)
@@ -275,9 +378,10 @@ run_review() {
   review_summary_read "${listing##*$'\n'}" || fail INTERNAL
   case "$listing" in *$'\n'*) items=${listing%$'\n'*} ;; esac
   token=$(new_token) || fail INTERNAL
+  secret=$(new_secret) || fail INTERNAL
   review_file_is_writable "$REVIEW_REPORT" || fail INTERNAL
-  review_manifest_write "$token" "$now" "$items" || fail INTERNAL
-  report_write "$token" "$items" || fail INTERNAL
+  review_manifest_write "$token" "$now" "$secret" "$items" || fail INTERNAL
+  report_write "$token" "$secret" "$items" || fail INTERNAL
   open_report && opened=1
   emit_review "$token" "$opened"
 }

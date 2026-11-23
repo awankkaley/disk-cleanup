@@ -3,7 +3,11 @@
 #
 # Layout of the generated file (mirrored by the Windows generator):
 #   REPORT_HEAD_OPEN, REPORT_CSP, REPORT_HEAD   static text
-#   <tbody id="rows" data-token="TOKEN">        the review token, 8 hex digits
+#   <tbody id="rows" data-token="TOKEN" data-secret="SECRET">
+#                                               the review token (8 hex digits)
+#                                               and the selection secret (32);
+#                                               the secret exists only here and
+#                                               in the manifest, never on stdout
 #   one REPORT_ROW line per item                the only place item data goes
 #   REPORT_TAIL                                 static text, holds the script
 # Item data is never written into the script: the page reads it from the
@@ -11,7 +15,7 @@
 # &quot; &#39;), every other value in a row is digits or a fixed group id.
 
 readonly REPORT_CSP="<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'\">"
-readonly REPORT_ROW='<tr data-id="%s" data-size="%s" data-mtime="%s" data-group="%s"><td class="pick"><input type="checkbox" id="item-%s"></td><td class="name"><label for="item-%s">%s</label></td><td class="folder">%s</td><td class="size"></td><td class="date"></td><td class="group"></td></tr>\n'
+readonly REPORT_ROW='<tr data-id="%s" data-size="%s" data-mtime="%s" data-group="%s"><td class="pick"><input type="checkbox" id="item-%s"></td><td class="name" dir="auto"><label for="item-%s">%s</label></td><td class="folder" dir="auto">%s</td><td class="size"></td><td class="date"></td><td class="group"></td></tr>\n'
 
 readonly REPORT_HEAD_OPEN='<!DOCTYPE html>
 <html lang="en">
@@ -60,13 +64,13 @@ table { width: 100%; border-collapse: collapse; background: var(--card); border:
 caption, .quiet { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 th { text-align: left; font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); padding: 0.7rem 0.75rem; border-bottom: 2px solid var(--ink); }
 td { padding: 0.7rem 0.75rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
-tbody tr { cursor: pointer; transition: background-color 150ms; }
+tbody tr { transition: background-color 150ms; }
 tbody tr:hover { background: var(--paper); }
 tbody tr.picked { background: var(--picked); box-shadow: inset 4px 0 0 var(--accent); }
 .pick { width: 2.75rem; }
 .pick input { width: 1.25rem; height: 1.25rem; margin: 0.15rem 0 0; accent-color: var(--accent); cursor: pointer; }
-.name label { font-weight: 600; cursor: pointer; overflow-wrap: anywhere; }
-.folder { color: var(--muted); font-size: 0.9rem; overflow-wrap: anywhere; max-width: 22rem; }
+.name label { font-weight: 600; cursor: pointer; overflow-wrap: anywhere; unicode-bidi: isolate; }
+.folder { color: var(--muted); font-size: 0.9rem; overflow-wrap: anywhere; max-width: 22rem; unicode-bidi: isolate; }
 .size, .date, th.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .size { font: 600 1.05rem/1.4 var(--display); min-width: 7rem; }
 .bar { display: block; height: 3px; margin-top: 0.3rem; background: var(--rule); }
@@ -144,7 +148,8 @@ readonly REPORT_TAIL='</tbody>
       sortDesc: "Largest first", sortAsc: "Smallest first", caption: "Files you can choose to move to the Trash",
       colPick: "Pick", colName: "Name", colFolder: "Folder", colSize: "Size", colDate: "Last changed", colGroup: "Kind",
       groupLarge: "Large file", groupOld: "Old download", summaryNone: "Nothing ticked yet.",
-      summaryOne: "Selected: 1 item, {size}", summary: "Selected: {n} items, {size}", save: "Save selection",
+      summaryOne: "Selected: 1 item, {size}", summary: "Selected: {n} items, {size}",
+      summaryHidden: " ({hidden} of them hidden by the filter)", save: "Save selection",
       saved: "Saved to your Downloads folder as disk-cleanup-selection.json. Now go back to the assistant and tell it to continue.",
       empty: "No large files or old downloads were found. There is nothing to choose here."
     },
@@ -158,7 +163,8 @@ readonly REPORT_TAIL='</tbody>
       sortDesc: "Terbesar dulu", sortAsc: "Terkecil dulu", caption: "File yang dapat Anda pilih untuk dipindahkan ke Tong Sampah",
       colPick: "Pilih", colName: "Nama", colFolder: "Folder", colSize: "Ukuran", colDate: "Terakhir diubah", colGroup: "Jenis",
       groupLarge: "File besar", groupOld: "Unduhan lama", summaryNone: "Belum ada yang dicentang.",
-      summaryOne: "Dipilih: 1 item, {size}", summary: "Dipilih: {n} item, {size}", save: "Simpan pilihan",
+      summaryOne: "Dipilih: 1 item, {size}", summary: "Dipilih: {n} item, {size}",
+      summaryHidden: " ({hidden} di antaranya tersembunyi oleh filter)", save: "Simpan pilihan",
       saved: "Tersimpan di folder Unduhan sebagai disk-cleanup-selection.json. Sekarang kembali ke asisten dan minta untuk melanjutkan.",
       empty: "Tidak ada file besar atau unduhan lama yang ditemukan. Tidak ada yang perlu dipilih."
     }
@@ -170,6 +176,7 @@ readonly REPORT_TAIL='</tbody>
   var body = document.getElementById("rows");
   var rows = Array.prototype.slice.call(body.rows);
   var token = body.getAttribute("data-token") || "";
+  var secret = body.getAttribute("data-secret") || "";
   var save = document.getElementById("save");
   var sort = document.getElementById("sort");
   var summary = document.getElementById("summary");
@@ -217,15 +224,18 @@ readonly REPORT_TAIL='</tbody>
     document.getElementById("tools").hidden = rows.length === 0;
   }
   function update() {
-    var count = 0, bytes = 0;
+    var count = 0, bytes = 0, hidden = 0;
     rows.forEach(function (row) {
       var ticked = boxOf(row).checked;
       row.classList.toggle("picked", ticked);
       if (ticked) { count += 1; bytes += sizeOf(row); }
+      if (ticked && row.hidden) { hidden += 1; }
     });
     var line = count === 0 ? text.summaryNone : (count === 1 ? text.summaryOne : text.summary);
-    summary.textContent = line.replace("{n}", String(count)).replace("{size}", sizeText(bytes));
-    save.disabled = count === 0 || !/^[0-9a-f]{8}$/.test(token);
+    if (hidden > 0) { line += text.summaryHidden; }
+    summary.textContent = line.replace("{n}", String(count)).replace("{size}", sizeText(bytes))
+      .replace("{hidden}", String(hidden));
+    save.disabled = count === 0 || !/^[0-9a-f]{8}$/.test(token) || !/^[0-9a-f]{32}$/.test(secret);
     saved.hidden = true;
   }
   function filter(group) {
@@ -235,6 +245,7 @@ readonly REPORT_TAIL='</tbody>
     Array.prototype.forEach.call(document.querySelectorAll("[data-filter]"), function (chip) {
       chip.setAttribute("aria-pressed", String(chip.getAttribute("data-filter") === group));
     });
+    update();
   }
   function reorder() {
     descending = !descending;
@@ -247,7 +258,7 @@ readonly REPORT_TAIL='</tbody>
       .map(function (row) { return Number(row.getAttribute("data-id")); })
       .sort(function (a, b) { return a - b; });
     if (ids.length === 0) { return; }
-    var content = "{\"token\":\"" + token + "\",\"ids\":[" + ids.join(",") + "]}";
+    var content = "{\"token\":\"" + token + "\",\"secret\":\"" + secret + "\",\"ids\":[" + ids.join(",") + "]}";
     var anchor = document.createElement("a");
     var address = URL.createObjectURL(new Blob([content], { type: "application/json" }));
     anchor.href = address;
@@ -263,12 +274,6 @@ readonly REPORT_TAIL='</tbody>
   decorate();
   update();
   body.addEventListener("change", update);
-  body.addEventListener("click", function (event) {
-    var row = event.target.closest("tr");
-    if (!row || event.target.closest("input, label")) { return; }
-    boxOf(row).checked = !boxOf(row).checked;
-    update();
-  });
   Array.prototype.forEach.call(document.querySelectorAll("[data-filter]"), function (chip) {
     chip.addEventListener("click", function () { filter(chip.getAttribute("data-filter")); });
   });
@@ -303,15 +308,15 @@ report_rows() {
     }'
 }
 
-# report_write TOKEN ITEMS
+# report_write TOKEN SECRET ITEMS
 report_write() {
-  is_token "$1" && review_file_is_writable "$REVIEW_REPORT" || return 1
+  is_token "$1" && is_secret "$2" && review_file_is_writable "$REVIEW_REPORT" || return 1
   (
     umask 077
     {
-      printf '%s\n%s\n%s\n<tbody id="rows" data-token="%s">\n' \
-        "$REPORT_HEAD_OPEN" "$REPORT_CSP" "$REPORT_HEAD" "$1"
-      [ -z "$2" ] || printf '%s\n' "$2" | report_rows
+      printf '%s\n%s\n%s\n<tbody id="rows" data-token="%s" data-secret="%s">\n' \
+        "$REPORT_HEAD_OPEN" "$REPORT_CSP" "$REPORT_HEAD" "$1" "$2"
+      [ -z "$3" ] || printf '%s\n' "$3" | report_rows
       printf '%s\n' "$REPORT_TAIL"
     } > "$REVIEW_REPORT"
   ) 2> /dev/null || return 1

@@ -3,6 +3,7 @@ BeforeAll {
     . (Join-Path -Path $PSScriptRoot -ChildPath 'Sandbox.Helpers.ps1')
 
     $script:fakeHome = 'C:\Users\zqowner'
+    $script:fakeSecret = '00112233445566778899aabbccddeeff'
     $script:csp = '<meta http-equiv="Content-Security-Policy" content="default-src ''none''; style-src ''unsafe-inline''; script-src ''unsafe-inline''">'
 
     function Get-FakeItem {
@@ -64,7 +65,7 @@ Describe 'review report' {
             (Get-FakeItem -Id 4 -Name "zq' onclick='alert(4).txt" -Size 300 -Group 'old-downloads' -Folder 'Downloads'),
             (Get-FakeItem -Id 5 -Name 'zq&amp;-->]]>${alert(5)}`.bin' -Size 200 -Group 'old-downloads' -Folder 'Downloads')
         )
-        $script:html = Get-ReviewReportHtml -Token 'a1b2c3d4' -Items $script:hostile -HomeRoot $script:fakeHome
+        $script:html = Get-ReviewReportHtml -Token 'a1b2c3d4' -Secret $script:fakeSecret -Items $script:hostile -HomeRoot $script:fakeHome
     }
 
     It 'carries the content security policy and loads nothing from anywhere' {
@@ -105,7 +106,8 @@ Describe 'review report' {
             ([regex]::Matches($row, '<td')).Count | Should -Be 6
             ([regex]::Matches($row, '<input ')).Count | Should -Be 1
             ([regex]::Matches($row, '<')).Count | Should -Be 17
-            ([regex]::Matches($row, '"')).Count | Should -Be 24
+            ([regex]::Matches($row, '"')).Count | Should -Be 28
+            ([regex]::Matches($row, ' dir="auto"')).Count | Should -Be 2
             $row | Should -Not -Match "'"
             $row | Should -MatchExactly '^<tr data-id="[0-9]+" data-size="[0-9]+" data-group="(large-files|old-downloads)"><td><input type="checkbox" id="pick[0-9]+"></td>'
         }
@@ -117,20 +119,21 @@ Describe 'review report' {
         $scriptText | Should -Not -Match 'zq'
         $scriptText | Should -Not -Match 'alert'
         $scriptText | Should -Not -Match 'a1b2c3d4'
+        $scriptText | Should -Not -Match $script:fakeSecret
         $script:html.IndexOf('<tr data-id=') | Should -BeLessThan $script:html.IndexOf('<script>')
         $script:html.LastIndexOf('<tr data-id=') | Should -BeLessThan $script:html.IndexOf('<script>')
     }
 
     It 'shows each item unchecked with its size, date, group and a folder relative to the profile' {
-        $plain = Get-ReviewReportHtml -Token 'a1b2c3d4' -HomeRoot $script:fakeHome -Items @(
+        $plain = Get-ReviewReportHtml -Token 'a1b2c3d4' -Secret $script:fakeSecret -HomeRoot $script:fakeHome -Items @(
             (Get-FakeItem -Id 7 -Name 'zqholiday.mp4' -Folder 'Videos\zqtrip'),
             (Get-FakeItem -Id 8 -Name 'zqold.exe' -Folder 'Downloads' -Size 300 -Group 'old-downloads')
         )
 
         $plain | Should -Not -Match '(?i)\schecked'
         $plain.Contains('<tr data-id="7" data-size="12582912" data-group="large-files">') | Should -BeTrue
-        $plain.Contains('<td class="name"><label for="pick7">zqholiday.mp4</label></td>') | Should -BeTrue
-        $plain.Contains('<td class="folder">~\Videos\zqtrip</td>') | Should -BeTrue
+        $plain.Contains('<td class="name" dir="auto"><label for="pick7">zqholiday.mp4</label></td>') | Should -BeTrue
+        $plain.Contains('<td class="folder" dir="auto">~\Videos\zqtrip</td>') | Should -BeTrue
         $plain.Contains('<td class="num">12.0 MB</td>') | Should -BeTrue
         $plain | Should -Match '<td class="when">2024-03-(08|09|10)</td>'
         $plain.Contains('<td class="group" data-t="gLarge">Large files</td></tr>') | Should -BeTrue
@@ -141,15 +144,60 @@ Describe 'review report' {
 
     It 'embeds the token once, as an attribute, and refuses a malformed token' {
         ([regex]::Matches($script:html, 'a1b2c3d4')).Count | Should -Be 1
-        $script:html.Contains('<body data-token="a1b2c3d4">') | Should -BeTrue
-        { Get-ReviewReportHtml -Token '"><script>' -Items @() -HomeRoot $script:fakeHome } | Should -Throw
-        { Get-ReviewReportHtml -Token 'A1B2C3D4' -Items @() -HomeRoot $script:fakeHome } | Should -Throw
+        $script:html.Contains('<body data-token="a1b2c3d4" data-secret="00112233445566778899aabbccddeeff">') | Should -BeTrue
+        { Get-ReviewReportHtml -Token '"><script>' -Secret $script:fakeSecret -Items @() -HomeRoot $script:fakeHome } | Should -Throw
+        { Get-ReviewReportHtml -Token 'A1B2C3D4' -Secret $script:fakeSecret -Items @() -HomeRoot $script:fakeHome } | Should -Throw
+    }
+
+    It 'embeds the selection secret once, next to the token, and refuses a malformed secret' {
+        ([regex]::Matches($script:html, $script:fakeSecret)).Count | Should -Be 1
+        foreach ($bad in @('', 'a1b2c3d4', '00112233445566778899AABBCCDDEEFF', '00112233445566778899aabbccddeef', '"><script>alert(1)</script>000000')) {
+            { Get-ReviewReportHtml -Token 'a1b2c3d4' -Secret $bad -Items @() -HomeRoot $script:fakeHome } | Should -Throw
+        }
+    }
+
+    It 'checks in the page that the token and the secret are plain hex before it can save' {
+        $scriptText = Get-ScriptBlockText -Html $script:html
+
+        $scriptText.Contains("var secret = String(document.body.getAttribute('data-secret'));") | Should -BeTrue
+        $scriptText.Contains('var valid = /^[0-9a-f]{8}$/.test(token) && /^[0-9a-f]{32}$/.test(secret);') | Should -BeTrue
+        $scriptText.Contains('if (!valid) { save.disabled = true; }') | Should -BeTrue
+        $scriptText.Contains('if (ids.length === 0 || !valid) { return; }') | Should -BeTrue
+    }
+
+    It 'lets a name set its own text direction without reordering the cells around it' {
+        $script:html | Should -Match '\.name,\.folder\{[^}]*unicode-bidi:isolate'
+        ([regex]::Matches($script:html, '<td class="name" dir="auto">')).Count | Should -Be 5
+        ([regex]::Matches($script:html, '<td class="folder" dir="auto">')).Count | Should -Be 5
+    }
+
+    It 'ticks a row only through its checkbox and its label, never through a click on the row' {
+        $scriptText = Get-ScriptBlockText -Html $script:html
+
+        $scriptText.Contains("body.addEventListener('change', refresh);") | Should -BeTrue
+        ([regex]::Matches($scriptText, "addEventListener\('click'")).Count | Should -Be 2
+        $scriptText | Should -Match "order\.addEventListener\('click'"
+        $scriptText | Should -Match "save\.addEventListener\('click'"
+        $scriptText | Should -Not -Match '\.checked\s*=[^=]'
+        $scriptText | Should -Not -Match '(?i)onclick'
+        $script:html | Should -Not -Match '\.name label\{[^}]*display:block'
+    }
+
+    It 'says how many ticked items the filter is hiding, in both languages' {
+        $scriptText = Get-ScriptBlockText -Html $script:html
+
+        $scriptText.Contains('if (row.hidden) { unseen += 1; }') | Should -BeTrue
+        $scriptText.Contains("if (unseen > 0) { line += words.unseen.replace('{n}', String(unseen)); }") | Should -BeTrue
+        ([regex]::Matches($scriptText, "\bunseen: ' \(\{n\} ")).Count | Should -Be 2
+        $scriptText | Should -Match 'hidden by the filter'
+        $scriptText | Should -Match 'tersembunyi oleh filter'
+        $scriptText | Should -Match "(?s)filter\.addEventListener\('change', function \(\) \{.*?refresh\(\);\s*\}\);"
     }
 
     It 'refuses an item with an unknown group' {
         $odd = Get-FakeItem -Id 1 -Name 'zqfile.bin' -Group '"><script>alert(1)</script>'
 
-        { Get-ReviewReportHtml -Token 'a1b2c3d4' -Items @($odd) -HomeRoot $script:fakeHome } | Should -Throw
+        { Get-ReviewReportHtml -Token 'a1b2c3d4' -Secret $script:fakeSecret -Items @($odd) -HomeRoot $script:fakeHome } | Should -Throw
     }
 
     It 'explains in plain words that nothing is deleted here and warns about synced folders' {
@@ -162,7 +210,7 @@ Describe 'review report' {
     It 'saves exactly the agreed selection document and starts with the button disabled' {
         $scriptText = Get-ScriptBlockText -Html $script:html
 
-        $scriptText.Contains("'{`"token`":`"' + token + '`",`"ids`":[' + ids.join(',') + ']}'") | Should -BeTrue
+        $scriptText.Contains("'{`"token`":`"' + token + '`",`"secret`":`"' + secret + '`",`"ids`":[' + ids.join(',') + ']}'") | Should -BeTrue
         $scriptText.Contains("link.download = 'disk-cleanup-selection.json';") | Should -BeTrue
         $scriptText | Should -Match 'new Blob\('
         $script:html.Contains('<button type="button" id="save" disabled data-t="save">Save selection</button>') | Should -BeTrue
@@ -194,7 +242,7 @@ Describe 'review report' {
     }
 
     It 'renders an empty list without rows' {
-        $empty = Get-ReviewReportHtml -Token 'a1b2c3d4' -Items @() -HomeRoot $script:fakeHome
+        $empty = Get-ReviewReportHtml -Token 'a1b2c3d4' -Secret $script:fakeSecret -Items @() -HomeRoot $script:fakeHome
 
         $empty | Should -Not -Match '<tr data-id='
         $empty | Should -Match 'id="empty" hidden'
@@ -245,7 +293,7 @@ Describe 'review report on disk' {
         $run.Data.total_item_count | Should -Be 6
         $report = [System.IO.File]::ReadAllText($script:sandbox.Report)
         $report.Contains('zq&amp;amp;&#39;$(calc)`[1]{2};%TEMP% =x.bin</label>') | Should -BeTrue
-        $report.Contains('<td class="folder">~\Videos\zq&amp;co &#39;s</td>') | Should -BeTrue
+        $report.Contains('<td class="folder" dir="auto">~\Videos\zq&amp;co &#39;s</td>') | Should -BeTrue
         $report | Should -Not -Match 'zq&co'
         $report.Contains($script:csp) | Should -BeTrue
         Assert-PrivateOutput -Json $run.Json -Sandbox $script:sandbox
@@ -255,11 +303,13 @@ Describe 'review report on disk' {
         $run = Invoke-CleanupJson -Arguments @('review', '--min-size-mb', '10')
 
         $report = [System.IO.File]::ReadAllText($script:sandbox.Report)
-        $report.Contains('<td class="folder">~\Videos</td>') | Should -BeTrue
-        $report.Contains('<td class="folder">~\Downloads</td>') | Should -BeTrue
+        $report.Contains('<td class="folder" dir="auto">~\Videos</td>') | Should -BeTrue
+        $report.Contains('<td class="folder" dir="auto">~\Downloads</td>') | Should -BeTrue
         $report | Should -Not -Match 'zqfixtureuser'
         $report | Should -Not -Match ([regex]::Escape((Split-Path -Path $script:sandbox.Base -Leaf)))
-        $report.Contains('<body data-token="' + $run.Data.token + '">') | Should -BeTrue
+        $secret = Get-SandboxSecret -Manifest $script:sandbox.Manifest
+        $report.Contains('<body data-token="' + $run.Data.token + '" data-secret="' + $secret + '">') | Should -BeTrue
+        $run.Json | Should -Not -Match $secret
         ([regex]::Matches($report, '<tr data-id=')).Count | Should -Be 5
     }
 

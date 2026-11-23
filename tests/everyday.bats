@@ -20,7 +20,10 @@ setup() {
   make_file "$SUPPORT/Spotify/PersistentCache/Storage/a1/blob.file" 128
   make_file "$SUPPORT/Spotify/Users/someone-user/prefs" 4
   make_file "$SUPPORT/Spotify/prefs" 4
+  make_file "$SUPPORT/Spotify/PersistentCache/Users/someone-user/offline.bnk" 4
   make_file "$SUPPORT/zoom.us/data/zoomus.enc.db" 4
+  make_file "$SUPPORT/zoom.us/Cache/blob" 32
+  make_file "$SUPPORT/Telegram Desktop/Cache/blob" 32
   make_file "$SUPPORT/WhatsApp/Cache/blob" 32
   make_file "$SUPPORT/WhatsApp/IndexedDB/store.leveldb/000003.log" 4
   make_file "$SUPPORT/Telegram Desktop/tdata/user_data/media_cache/0/blob" 4
@@ -39,6 +42,8 @@ KEPT=(
   "Slack/Local Storage/leveldb/000005.ldb" "Slack/Cookies" "Slack/Service Worker/CacheStorage/sw-blob"
   "discord/settings.json" "Microsoft/Teams/desktop-config.json"
   "Spotify/Users/someone-user/prefs" "Spotify/prefs" "zoom.us/data/zoomus.enc.db"
+  "Spotify/PersistentCache/Storage/a1/blob.file" "Spotify/PersistentCache/Users/someone-user/offline.bnk"
+  "zoom.us/Cache/blob" "WhatsApp/Cache/blob" "Telegram Desktop/Cache/blob"
   "WhatsApp/IndexedDB/store.leveldb/000003.log"
   "Telegram Desktop/tdata/user_data/media_cache/0/blob" "Telegram Desktop/tdata/key_datas"
   "Code/User/settings.json" "Code/User/globalStorage/state.vscdb"
@@ -50,11 +55,11 @@ assert_kept() {
   for path in "${KEPT[@]}"; do assert_exists "$SUPPORT/$path" || return 1; done
 }
 
-@test "app-caches counts the caches of known chat, media and editor apps" {
+@test "app-caches counts the caches of the known chat and editor apps only" {
   run_cleanup scan
   assert_json_schema scan
   [ "$(json cat app-caches status)" = "ok" ]
-  [ "$(json cat app-caches item_count)" = "9" ]
+  [ "$(json cat app-caches item_count)" = "7" ]
   assert_private Slack discord Spotify WhatsApp Telegram
 }
 
@@ -68,12 +73,9 @@ assert_kept() {
   assert_missing "$SUPPORT/Slack/GPUCache/blob"
   assert_missing "$SUPPORT/discord/Cache/Cache_Data"
   assert_missing "$SUPPORT/Microsoft/Teams/Cache/blob"
-  assert_missing "$SUPPORT/Spotify/PersistentCache/Storage"
-  assert_missing "$SUPPORT/WhatsApp/Cache/blob"
   assert_missing "$SUPPORT/Code/CachedData/abc123"
   assert_missing "$SUPPORT/Code/Cache/Cache_Data"
   assert_exists "$SUPPORT/Slack/Cache"
-  assert_exists "$SUPPORT/Spotify/PersistentCache"
   assert_kept
 }
 
@@ -81,7 +83,7 @@ assert_kept() {
   mark_app_running "Slack" "com.tinyspeck.slackmacgap"
   mark_app_running "Visual Studio Code" "com.microsoft.VSCode"
   scan_for_token
-  [ "$(json cat app-caches item_count)" = "4" ]
+  [ "$(json cat app-caches item_count)" = "2" ]
   clean_categories app-caches
   [ "$status" -eq 0 ]
   assert_exists "$SUPPORT/Slack/Cache/Cache_Data/blob"
@@ -89,8 +91,19 @@ assert_kept() {
   assert_exists "$SUPPORT/Code/CachedData/abc123/chrome/js/blob.code"
   assert_exists "$SUPPORT/Code/Cache/Cache_Data/blob"
   assert_missing "$SUPPORT/discord/Cache/Cache_Data"
-  assert_missing "$SUPPORT/Spotify/PersistentCache/Storage"
+  assert_missing "$SUPPORT/Microsoft/Teams/Cache/blob"
   assert_kept
+}
+
+@test "Spotify offline downloads and unverified app layouts are never touched" {
+  /bin/rm -rf "$SUPPORT/Slack" "$SUPPORT/discord" "$SUPPORT/Microsoft" "$SUPPORT/Code"
+  run_cleanup scan
+  [ "$(json cat app-caches status)" = "not_found" ]
+  local table
+  table=$(/usr/bin/sed -n '/^readonly KNOWN_APP_CACHE_ROWS=(/,/^)/p' "$PROJECT_ROOT/scripts/lib/catalog.sh")
+  [ "$(printf '%s\n' "$table" | /usr/bin/grep -c '|')" = "4" ]
+  run /usr/bin/grep -ciE 'spotify|zoom|whatsapp|telegram|PersistentCache' <<< "$table"
+  [ "$output" = "0" ]
 }
 
 @test "a cache folder that is a symlink is never followed" {

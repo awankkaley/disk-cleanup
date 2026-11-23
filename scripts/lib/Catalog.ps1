@@ -1,5 +1,7 @@
 # Known desktop apps whose cache folders belong to the app-caches category.
-# To add an app, append one row. Base is Home (%USERPROFILE%), Local (%LOCALAPPDATA%)
+# To add an app, append one row, and only after checking the app's real layout: an
+# app whose "cache" holds things the user chose to keep (offline music, chat media,
+# message stores) does not belong here. Base is Home (%USERPROFILE%), Local (%LOCALAPPDATA%)
 # or Roaming (%APPDATA%); Path is the app data folder below it; Processes are the
 # process names (without .exe) that mean the app is open. Only the folder names in
 # APP_CACHE_DIR_NAMES are ever cleaned inside that app folder.
@@ -7,10 +9,7 @@ $script:KNOWN_APP_CACHES = @(
     @{ Name = 'Slack'; Base = 'Roaming'; Path = 'Slack'; Processes = @('slack') },
     @{ Name = 'Discord'; Base = 'Roaming'; Path = 'discord'; Processes = @('Discord') },
     @{ Name = 'Microsoft Teams'; Base = 'Roaming'; Path = 'Microsoft\Teams'; Processes = @('Teams') },
-    @{ Name = 'Spotify'; Base = 'Local'; Path = 'Spotify\Browser'; Processes = @('Spotify') },
-    @{ Name = 'Visual Studio Code'; Base = 'Roaming'; Path = 'Code'; Processes = @('Code') },
-    @{ Name = 'WhatsApp'; Base = 'Roaming'; Path = 'WhatsApp'; Processes = @('WhatsApp') },
-    @{ Name = 'Telegram'; Base = 'Roaming'; Path = 'Telegram Desktop\tdata\user_data'; Processes = @('Telegram') }
+    @{ Name = 'Visual Studio Code'; Base = 'Roaming'; Path = 'Code'; Processes = @('Code') }
 )
 $script:APP_CACHE_DIR_NAMES = @('Cache', 'Code Cache', 'GPUCache', 'CachedData')
 
@@ -115,7 +114,7 @@ $script:IMPACT_NODE_MODULES = 'Idle projects need a package install before they 
 # 3 = long re-download or rebuild.
 $script:CATEGORIES = @(
     @{ Id = 'app-caches'; Label = 'App caches'; Group = 'system'; Risk = 'safe'; Kind = 'directory'
-        Impact = $script:IMPACT_APP_CACHE; RequiresFlag = $null; DeepOnly = $false; RebuildCost = 1 },
+        Impact = $script:IMPACT_APP_CACHE; RequiresFlag = $null; DeepOnly = $false; RebuildCost = 2 },
     @{ Id = 'temp-files'; Label = 'Temporary files'; Group = 'system'; Risk = 'safe'; Kind = 'directory'
         Impact = $script:IMPACT_TEMP; RequiresFlag = $null; DeepOnly = $false; RebuildCost = 1 },
     @{ Id = 'thumbnail-cache'; Label = 'Thumbnail cache'; Group = 'system'; Risk = 'safe'; Kind = 'directory'
@@ -123,9 +122,9 @@ $script:CATEGORIES = @(
     @{ Id = 'crash-dumps'; Label = 'Crash dumps'; Group = 'system'; Risk = 'safe'; Kind = 'directory'
         Impact = $script:IMPACT_CRASH_DUMP; RequiresFlag = $null; DeepOnly = $false; RebuildCost = 1 },
     @{ Id = 'store-app-caches'; Label = 'Store app caches'; Group = 'system'; Risk = 'safe'; Kind = 'directory'
-        Impact = $script:IMPACT_STORE_APP; RequiresFlag = $null; DeepOnly = $false; RebuildCost = 1 },
+        Impact = $script:IMPACT_STORE_APP; RequiresFlag = $null; DeepOnly = $false; RebuildCost = 2 },
     @{ Id = 'trash'; Label = 'Recycle Bin'; Group = 'system'; Risk = 'irreversible'; Kind = 'trash'
-        Impact = $script:IMPACT_TRASH; RequiresFlag = $script:TRASH_FLAG; DeepOnly = $false; RebuildCost = 1 },
+        Impact = $script:IMPACT_TRASH; RequiresFlag = $script:TRASH_FLAG; DeepOnly = $false; RebuildCost = 2 },
     @{ Id = 'browser-chrome'; Label = 'Chrome cache'; Group = 'browser'; Risk = 'safe'; Kind = 'directory'
         Impact = $script:IMPACT_BROWSER; RequiresFlag = $null; DeepOnly = $false; RebuildCost = 1 },
     @{ Id = 'browser-edge'; Label = 'Edge cache'; Group = 'browser'; Risk = 'safe'; Kind = 'directory'
@@ -149,11 +148,11 @@ $script:CATEGORIES = @(
     @{ Id = 'gradle-cache'; Label = 'Gradle cache'; Group = 'developer'; Risk = 'safe'; Kind = 'directory'
         Impact = $script:IMPACT_PACKAGE; RequiresFlag = $null; DeepOnly = $false; RebuildCost = 3 },
     @{ Id = 'cargo-cache'; Label = 'Cargo registry cache'; Group = 'developer'; Risk = 'safe'; Kind = 'directory'
-        Impact = $script:IMPACT_PACKAGE; RequiresFlag = $null; DeepOnly = $false; RebuildCost = 2 },
+        Impact = $script:IMPACT_PACKAGE; RequiresFlag = $null; DeepOnly = $false; RebuildCost = 3 },
     @{ Id = 'go-cache'; Label = 'Go build cache'; Group = 'developer'; Risk = 'safe'; Kind = 'tool'
         Impact = $script:IMPACT_BUILD; RequiresFlag = $null; DeepOnly = $false; RebuildCost = 2 },
     @{ Id = 'docker-dangling'; Label = 'Docker dangling images'; Group = 'developer'; Risk = 'safe'; Kind = 'docker'
-        Impact = $script:IMPACT_DOCKER; RequiresFlag = $null; DeepOnly = $false; RebuildCost = 1 },
+        Impact = $script:IMPACT_DOCKER; RequiresFlag = $null; DeepOnly = $false; RebuildCost = 2 },
     @{ Id = 'node-modules-stale'; Label = 'Stale node_modules'; Group = 'projects'; Risk = 'rebuild_needed'
         Kind = 'node-modules'; Impact = $script:IMPACT_NODE_MODULES; RequiresFlag = $null; DeepOnly = $true; RebuildCost = 3 }
 )

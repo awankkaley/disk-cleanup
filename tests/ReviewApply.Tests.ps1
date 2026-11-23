@@ -137,7 +137,8 @@ Describe 'review-apply' {
         }
 
         It 'counts a repeated id once' {
-            $null = Add-RawSelection -Sandbox $script:sandbox -Content ('{"token":"' + $script:token + '","ids":[4,4,04,4]}')
+            $secret = Get-SandboxSecret -Manifest $script:sandbox.Manifest
+            $null = Add-RawSelection -Sandbox $script:sandbox -Content ('{"token":"' + $script:token + '","secret":"' + $secret + '","ids":[4,4,04,4]}')
 
             $run = Invoke-Apply -Token $script:token
 
@@ -154,6 +155,8 @@ Describe 'review-apply' {
             $run.Data.selected_count | Should -Be 0
             $run.Data.trashed_count | Should -Be 0
             Should -Invoke Send-FileToRecycleBin -Times 0 -Exactly
+            Test-Path -LiteralPath $script:sandbox.Manifest | Should -BeFalse
+            Test-Path -LiteralPath $script:sandbox.Report | Should -BeFalse
         }
 
         It 'moves a file whose name is full of shell and wildcard characters, and not its look-alikes' {
@@ -341,6 +344,7 @@ Describe 'review-apply' {
             if ($Kind -eq 'relative') { $variant = 'Documents\zqarchive.zip' }
             $text = [System.IO.File]::ReadAllText($script:sandbox.Manifest)
             [System.IO.File]::WriteAllText($script:sandbox.Manifest, $text.Replace($real, $variant))
+            Update-SandboxManifestDigest -Manifest $script:sandbox.Manifest
             $null = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:token -Ids @(2)
 
             $run = Invoke-Apply -Token $script:token
@@ -357,17 +361,25 @@ Describe 'review-apply' {
             @{ Name = 'a negative size'; Kind = 'negative' }
             @{ Name = 'another header'; Kind = 'header' }
             @{ Name = 'no content'; Kind = 'empty' }
+            @{ Name = 'no secret line'; Kind = 'secret' }
+            @{ Name = 'no digest line'; Kind = 'digest' }
+            @{ Name = 'a size threshold below the minimum'; Kind = 'threshold' }
+            @{ Name = 'an age threshold below the minimum'; Kind = 'age' }
         ) {
+            $null = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:token -Ids @(1, 2, 3, 4, 5)
             $text = [System.IO.File]::ReadAllText($script:sandbox.Manifest)
             $changed = $text + 'zqgarbage $(calc)' + [char]10
             if ($Kind -eq 'group') { $changed = $text.Replace('old-downloads', 'everything') }
-            if ($Kind -eq 'repeat') { $changed = $text + ($text -split [char]10)[3] + [char]10 }
+            if ($Kind -eq 'repeat') { $changed = $text + ($text -split [char]10)[7] + [char]10 }
+            if ($Kind -eq 'secret') { $changed = [regex]::Replace($text, '(?m)^secret [0-9a-f]{32}\n', '') }
+            if ($Kind -eq 'digest') { $changed = [regex]::Replace($text, '(?m)^sha256 [0-9a-f]{64}\n', '') }
+            if ($Kind -eq 'threshold') { $changed = $text.Replace('min-size-mb 10', 'min-size-mb 9') }
+            if ($Kind -eq 'age') { $changed = $text.Replace('downloads-age-days 90', 'downloads-age-days 6') }
             if ($Kind -eq 'negative') { $changed = $text.Replace(([string][char]9 + '300' + [char]9 + '300' + [char]9), ([string][char]9 + '-300' + [char]9 + '300' + [char]9)) }
             if ($Kind -eq 'header') { $changed = $text.Replace('disk-cleanup-review-manifest 1', 'disk-cleanup-review-manifest 2') }
             if ($Kind -eq 'empty') { $changed = '' }
             $changed | Should -Not -BeExactly $text
             [System.IO.File]::WriteAllText($script:sandbox.Manifest, $changed)
-            $null = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:token -Ids @(1, 2, 3, 4, 5)
 
             $run = Invoke-Apply -Token $script:token
 
@@ -376,6 +388,77 @@ Describe 'review-apply' {
             Should -Invoke Send-FileToRecycleBin -Times 0 -Exactly
             Test-Path -LiteralPath $script:files.Holiday | Should -BeTrue
             Assert-PrivateOutput -Json $run.Json -Sandbox $script:sandbox
+        }
+
+        It 'rejects a manifest in which <Name> without a matching digest, and moves nothing' -ForEach @(
+            @{ Name = 'a line was added'; Kind = 'added' }
+            @{ Name = 'a line was removed'; Kind = 'removed' }
+            @{ Name = 'a path was edited'; Kind = 'path' }
+            @{ Name = 'a size was edited'; Kind = 'size' }
+            @{ Name = 'the size threshold was edited'; Kind = 'threshold' }
+            @{ Name = 'the age threshold was edited'; Kind = 'age' }
+            @{ Name = 'the digest was edited'; Kind = 'digest' }
+        ) {
+            $selection = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:token -Ids @(1, 2, 3, 4, 5, 6)
+            $tab = [string][char]9
+            $small = New-Object -TypeName System.IO.FileInfo -ArgumentList (Get-NormalizedPath -Path $script:files.Small)
+            $text = [System.IO.File]::ReadAllText($script:sandbox.Manifest)
+            $changed = $text + (@('6', '50', '50', [string]$small.LastWriteTimeUtc.Ticks, 'large-files', $small.FullName) -join $tab) + [char]10
+            if ($Kind -eq 'removed') { $changed = $text.Substring(0, $text.TrimEnd([char]10).LastIndexOf([char]10) + 1) }
+            if ($Kind -eq 'path') { $changed = $text.Replace('zqholiday.mp4', 'zqsmall.txt') }
+            if ($Kind -eq 'size') { $changed = $text.Replace(($tab + '300' + $tab + '300' + $tab), ($tab + '301' + $tab + '300' + $tab)) }
+            if ($Kind -eq 'threshold') { $changed = $text.Replace('min-size-mb 10', 'min-size-mb 11') }
+            if ($Kind -eq 'age') { $changed = $text.Replace('downloads-age-days 90', 'downloads-age-days 91') }
+            if ($Kind -eq 'digest') { $changed = [regex]::Replace($text, '(?m)^sha256 [0-9a-f]{64}$', ('sha256 ' + ('0' * 64))) }
+            $changed | Should -Not -BeExactly $text
+            [System.IO.File]::WriteAllText($script:sandbox.Manifest, $changed)
+            $before = @(Get-SandboxFileList -Root $script:sandbox.Home) -join '|'
+
+            $run = Invoke-Apply -Token $script:token
+
+            $run.ExitCode | Should -Be 1
+            $run.Data.error.code | Should -Be 'SELECTION_INVALID'
+            Should -Invoke Send-FileToRecycleBin -Times 0 -Exactly
+            (@(Get-SandboxFileList -Root $script:sandbox.Home) -join '|') | Should -Be $before
+            Test-Path -LiteralPath $selection | Should -BeTrue
+            Assert-PrivateOutput -Json $run.Json -Sandbox $script:sandbox
+        }
+
+        It 'refuses a genuine-looking line that was added for <Name>, even with a matching digest' -ForEach @(
+            @{ Name = 'a small file as a large file'; Group = 'large-files'; Target = 'Small' }
+            @{ Name = 'a file outside Downloads as an old download'; Group = 'old-downloads'; Target = 'Small' }
+            @{ Name = 'a recent download as an old download'; Group = 'old-downloads'; Target = 'Recent' }
+            @{ Name = 'a file in a Downloads subfolder as an old download'; Group = 'old-downloads'; Target = 'Nested' }
+        ) {
+            $victim = Get-NormalizedPath -Path ([string]$script:files.$Target)
+            Add-SandboxManifestItem -Manifest $script:sandbox.Manifest -Id 6 -Group $Group -Path $victim
+            $null = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:token -Ids @(6, 4)
+
+            $run = Invoke-Apply -Token $script:token
+
+            $run.ExitCode | Should -Be 0
+            $run.Data.selected_count | Should -Be 2
+            $run.Data.skipped_changed_count | Should -Be 1
+            $run.Data.trashed_count | Should -Be 1
+            Test-Path -LiteralPath $victim | Should -BeTrue
+            Test-Path -LiteralPath $script:files.OldInstaller | Should -BeFalse
+            Should -Invoke Send-FileToRecycleBin -Times 1 -Exactly
+        }
+
+        It 'applies the thresholds stored by the review, not the defaults' {
+            $script:token = Invoke-ReviewForToken -Extra @('--downloads-age-days', '150')
+            $text = [System.IO.File]::ReadAllText($script:sandbox.Manifest)
+            $text | Should -Match '(?m)^min-size-mb 10$'
+            $text | Should -Match '(?m)^downloads-age-days 150$'
+            Add-SandboxManifestItem -Manifest $script:sandbox.Manifest -Id 6 -Group 'old-downloads' -Path (Get-NormalizedPath -Path $script:files.OldNotes)
+            $null = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:token -Ids @(4, 6)
+
+            $run = Invoke-Apply -Token $script:token
+
+            $run.Data.trashed_count | Should -Be 1
+            $run.Data.skipped_changed_count | Should -Be 1
+            Test-Path -LiteralPath $script:files.OldNotes | Should -BeTrue
+            Test-Path -LiteralPath $script:files.OldInstaller | Should -BeFalse
         }
 
         It 'does not trust a manifest that is a link' {

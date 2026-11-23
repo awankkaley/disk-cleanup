@@ -130,9 +130,9 @@ Describe 'review' {
             $leaves = Get-ManifestLeafList -Manifest $script:sandbox.Manifest
             ($leaves -join ',') | Should -Be 'zqholiday.mp4,zqarchive.zip,zqbig-old.iso,zqold-installer.exe,zqold-notes.txt'
             $lines = @([System.IO.File]::ReadAllLines($script:sandbox.Manifest))
-            $lines[3] | Should -Match "^1`t12582912`t12582912`t[0-9]+`tlarge-files`t"
-            $lines[5] | Should -Match "^3`t10485760`t10485760`t[0-9]+`tlarge-files`t"
-            $lines[6] | Should -Match "^4`t300`t300`t[0-9]+`told-downloads`t"
+            $lines[7] | Should -Match "^1`t12582912`t12582912`t[0-9]+`tlarge-files`t"
+            $lines[9] | Should -Match "^3`t10485760`t10485760`t[0-9]+`tlarge-files`t"
+            $lines[10] | Should -Match "^4`t300`t300`t[0-9]+`told-downloads`t"
         }
 
         It 'uses 100 MB and 90 days by default' {
@@ -325,9 +325,48 @@ Describe 'review' {
             $lines[0] | Should -BeExactly 'disk-cleanup-review-manifest 1'
             $lines[1] | Should -BeExactly ('token ' + $run.Data.token)
             $lines[2] | Should -Match '^epoch [0-9]+$'
-            $lines.Count | Should -Be 8
+            $lines[3] | Should -BeExactly ('sha256 ' + (Get-SandboxManifestDigest -Manifest $script:sandbox.Manifest))
+            $lines[4] | Should -MatchExactly '^secret [0-9a-f]{32}$'
+            $lines[5] | Should -BeExactly 'min-size-mb 10'
+            $lines[6] | Should -BeExactly 'downloads-age-days 90'
+            $lines.Count | Should -Be 12
             Test-Path -LiteralPath $script:sandbox.Report | Should -BeTrue
             @([System.IO.Directory]::GetFiles($script:sandbox.StateDir)).Count | Should -Be 2
+        }
+
+        It 'stores the thresholds it was run with in the manifest' {
+            $null = Invoke-CleanupJson -Arguments @('review', '--min-size-mb', '12', '--downloads-age-days', '150')
+
+            $lines = @([System.IO.File]::ReadAllLines($script:sandbox.Manifest))
+            $lines[5] | Should -BeExactly 'min-size-mb 12'
+            $lines[6] | Should -BeExactly 'downloads-age-days 150'
+        }
+
+        It 'keeps the selection secret out of stdout and gives it only to the manifest and the report' {
+            $first = Invoke-Review
+            $firstSecret = Get-SandboxSecret -Manifest $script:sandbox.Manifest
+            $report = [System.IO.File]::ReadAllText($script:sandbox.Report)
+            $second = Invoke-Review
+            $secondSecret = Get-SandboxSecret -Manifest $script:sandbox.Manifest
+
+            $firstSecret | Should -MatchExactly '^[0-9a-f]{32}$'
+            $secondSecret | Should -Not -Be $firstSecret
+            $first.Json | Should -Not -Match $firstSecret
+            $second.Json | Should -Not -Match $secondSecret
+            $first.Json | Should -Not -Match '(?i)secret'
+            $first.Json | Should -Not -Match '[0-9a-f]{32}'
+            $report.Contains('<body data-token="' + $first.Data.token + '" data-secret="' + $firstSecret + '">') | Should -BeTrue
+            ([regex]::Matches($report, $firstSecret)).Count | Should -Be 1
+        }
+
+        It 'keeps the selection secret out of the error document too' {
+            Mock Write-ReviewStateFile { throw ('zqboom ' + $Text) }
+
+            $run = Invoke-Review
+
+            $run.ExitCode | Should -Be 1
+            $run.Data.error.code | Should -Be 'INTERNAL'
+            $run.Json | Should -Not -Match '[0-9a-f]{32}'
         }
 
         It 'gives every run a new token and replaces the previous manifest' {
@@ -357,6 +396,108 @@ Describe 'review' {
 
             $run.ExitCode | Should -Be 1
             $run.Data.error.code | Should -Be 'INTERNAL'
+            Assert-PrivateOutput -Json $run.Json -Sandbox $script:sandbox
+        }
+    }
+
+    Context 'a review that outlived its token' {
+        BeforeEach {
+            Mock Test-AppRunning { $false }
+            Mock Get-RunningPackageFamilyList { @() }
+            Mock Get-RecycleBinInfo { [pscustomobject]@{ Available = $true; Bytes = [long]0; Items = 0 } }
+            Mock Invoke-RecycleBinEmpty { $true }
+            Mock Get-ToolPath { $null }
+            Mock Invoke-Tool { [pscustomobject]@{ ExitCode = 1; Output = @() } }
+        }
+
+        It 'discards the report and the manifest when <Name> starts 60 minutes later' -ForEach @(
+            @{ Name = 'scan'; Arguments = @('scan') }
+            @{ Name = 'clean'; Arguments = @('clean', '--token', 'abcdef12', '--categories', 'temp-files') }
+            @{ Name = 'review-apply'; Arguments = @('review-apply', '--token', 'abcdef12') }
+            @{ Name = 'help'; Arguments = @('--help') }
+            @{ Name = 'version'; Arguments = @('--version') }
+            @{ Name = 'a command line that is not valid'; Arguments = @('zqnonsense') }
+        ) {
+            $null = Invoke-Review
+            Set-SandboxManifestEpoch -Manifest $script:sandbox.Manifest -Replacement ([string]((Get-EpochNow) - 3600))
+            $personal = @(Get-SandboxFileList -Root $script:sandbox.Home | Where-Object { $_ -notlike '*\AppData\*' })
+
+            $run = Invoke-CleanupJson -Arguments ([string[]]$Arguments)
+
+            Test-Path -LiteralPath $script:sandbox.Manifest | Should -BeFalse
+            Test-Path -LiteralPath $script:sandbox.Report | Should -BeFalse
+            foreach ($path in $personal) { Test-Path -LiteralPath $path | Should -BeTrue }
+            Should -Invoke Send-FileToRecycleBin -Times 0 -Exactly
+            Assert-PrivateOutput -Json $run.Json -Sandbox $script:sandbox
+        }
+
+        It 'replaces an expired review with the new one when review starts' {
+            $first = Invoke-Review
+            Set-SandboxManifestEpoch -Manifest $script:sandbox.Manifest -Replacement ([string]((Get-EpochNow) - 7200))
+
+            $second = Invoke-Review
+
+            $second.ExitCode | Should -Be 0
+            $second.Data.token | Should -Not -Be $first.Data.token
+            [System.IO.File]::ReadAllText($script:sandbox.Manifest) | Should -Match ('token ' + $second.Data.token)
+            Test-Path -LiteralPath $script:sandbox.Report | Should -BeTrue
+        }
+
+        It 'keeps a review that is 59 minutes old when <Name> starts' -ForEach @(
+            @{ Name = 'scan'; Arguments = @('scan') }
+            @{ Name = 'version'; Arguments = @('--version') }
+        ) {
+            $null = Invoke-Review
+            Set-SandboxManifestEpoch -Manifest $script:sandbox.Manifest -Replacement ([string]((Get-EpochNow) - 3540))
+
+            $null = Invoke-CleanupJson -Arguments ([string[]]$Arguments)
+
+            Test-Path -LiteralPath $script:sandbox.Manifest | Should -BeTrue
+            Test-Path -LiteralPath $script:sandbox.Report | Should -BeTrue
+        }
+
+        It 'dates a review whose manifest cannot be read by its files: <Name>' -ForEach @(
+            @{ Name = 'two hours old, discarded'; AgeMinutes = 120; Kept = $false }
+            @{ Name = 'ten minutes old, kept'; AgeMinutes = 10; Kept = $true }
+        ) {
+            $null = Invoke-Review
+            [System.IO.File]::WriteAllText($script:sandbox.Manifest, 'zqnot a manifest')
+            $stamp = [System.DateTime]::UtcNow.AddMinutes(-1 * $AgeMinutes)
+            [System.IO.File]::SetLastWriteTimeUtc($script:sandbox.Manifest, $stamp)
+            [System.IO.File]::SetLastWriteTimeUtc($script:sandbox.Report, $stamp)
+
+            $null = Invoke-CleanupJson -Arguments @('--version')
+
+            Test-Path -LiteralPath $script:sandbox.Manifest | Should -Be $Kept
+            Test-Path -LiteralPath $script:sandbox.Report | Should -Be $Kept
+        }
+
+        It 'discards a report that was left behind without a manifest' {
+            $null = Invoke-Review
+            [System.IO.File]::Move($script:sandbox.Manifest, (Join-Path -Path $script:sandbox.Outside -ChildPath 'zqmanifest-away'))
+            [System.IO.File]::SetLastWriteTimeUtc($script:sandbox.Report, [System.DateTime]::UtcNow.AddMinutes(-61))
+
+            $null = Invoke-CleanupJson -Arguments @('--help')
+
+            Test-Path -LiteralPath $script:sandbox.Report | Should -BeFalse
+        }
+
+        It 'does nothing and does not create the state directory when there is no review' {
+            $run = Invoke-CleanupJson -Arguments @('--version')
+
+            $run.ExitCode | Should -Be 0
+            Test-Path -LiteralPath $script:sandbox.StateDir | Should -BeFalse
+        }
+
+        It 'never fails a command when the old review cannot be discarded' {
+            $null = Invoke-Review
+            Set-SandboxManifestEpoch -Manifest $script:sandbox.Manifest -Replacement ([string]((Get-EpochNow) - 3600))
+            Mock Invoke-GuardedDelete { throw 'zqboom at C:\zqsecret\zqholiday.mp4' }
+
+            $run = Invoke-CleanupJson -Arguments @('--version')
+
+            $run.ExitCode | Should -Be 0
+            $run.Data.command | Should -Be 'version'
             Assert-PrivateOutput -Json $run.Json -Sandbox $script:sandbox
         }
     }
@@ -484,6 +625,18 @@ Describe 'review guard' {
         Test-ReviewPathAllowed -Path $odd -Roots $script:roots | Should -BeFalse
     }
 
+    It 'refuses a file below a folder whose name carries a character that reorders text' {
+        $path = Join-Path -Path $script:sandbox.Home -ChildPath ('Videos\zq' + [char]8238 + 'gpj\zqclip.mp4')
+        try {
+            Add-SandboxFile -Path $path
+        } catch {
+            Set-ItResult -Skipped -Because 'this file system does not accept the folder name'
+            return
+        }
+
+        Test-ReviewPathAllowed -Path (Get-NormalizedPath -Path $path) -Roots $script:roots | Should -BeFalse
+    }
+
     It 'refuses a file that does not exist' {
         Test-ReviewPathAllowed -Path ($script:roots.Home + '\Videos\zqmissing.mp4') -Roots $script:roots | Should -BeFalse
     }
@@ -506,6 +659,14 @@ Describe 'review guard' {
         @{ Label = 'delete character'; Name = ('zq' + [char]127 + 'x'); Expected = $false }
         @{ Label = 'line separator'; Name = ('zq' + [char]8232 + 'x'); Expected = $false }
         @{ Label = 'right-to-left override'; Name = ('zq' + [char]8238 + 'x'); Expected = $false }
+        @{ Label = 'left-to-right embedding'; Name = ('zq' + [char]8234 + 'x'); Expected = $false }
+        @{ Label = 'pop directional formatting'; Name = ('zq' + [char]8236 + 'x'); Expected = $false }
+        @{ Label = 'left-to-right isolate'; Name = ('zq' + [char]8294 + 'x'); Expected = $false }
+        @{ Label = 'pop directional isolate'; Name = ('zq' + [char]8297 + 'x'); Expected = $false }
+        @{ Label = 'left-to-right mark'; Name = ('zq' + [char]8206 + 'x'); Expected = $false }
+        @{ Label = 'right-to-left mark'; Name = ('zq' + [char]8207 + 'x'); Expected = $false }
+        @{ Label = 'Arabic letter mark'; Name = ('zq' + [char]1564 + 'x'); Expected = $false }
+        @{ Label = 'Arabic letters'; Name = ('zq' + [char]1587 + [char]1604 + '.txt'); Expected = $true }
         @{ Label = 'empty'; Name = ''; Expected = $false }
     ) {
         Test-ReviewNameSafe -Name $Name | Should -Be $Expected

@@ -10,21 +10,16 @@ A_DENIED=0
 A_FAILED=0
 A_IGNORED=0
 
+# The sweep at command start already loaded the review and discarded an
+# expired one; the token only decides which error the caller gets.
 validate_apply_request() {
-  local now age
   [ -n "$OPT_TOKEN" ] || fail TOKEN_MISSING
-  is_token "$OPT_TOKEN" && review_manifest_read && [ "$OPT_TOKEN" = "$RV_TOKEN" ] || fail TOKEN_INVALID
-  now=$(date +%s)
-  age=$((now - RV_EPOCH))
-  [ "$age" -ge 0 ] || fail TOKEN_INVALID
-  if [ "$age" -ge "$REVIEW_TOKEN_TTL_SECONDS" ]; then
-    review_discard
-    fail TOKEN_EXPIRED
-  fi
+  is_token "$OPT_TOKEN" && [ "$OPT_TOKEN" = "$RV_TOKEN" ] || fail TOKEN_INVALID
+  [ "$REVIEW_LIVE" = 1 ] || fail TOKEN_EXPIRED
 }
 
 load_selection() {
-  selection_locate "$OPT_TOKEN"
+  selection_locate "$OPT_TOKEN" "$RV_SECRET"
   case $? in
     0) ;;
     1) fail SELECTION_NOT_FOUND ;;
@@ -39,11 +34,27 @@ manifest_index() {
   [ -n "${RV_PATH[10#$1]:-}" ] && printf '%s' "$((10#$1))"
 }
 
+# True while the item still meets the rule of the group it was listed under,
+# so a line added to the manifest cannot bring in a file review would never
+# have offered. The trash routine then confirms size and time on disk.
+item_still_qualifies() {
+  local index=$1 now=$2 path=${RV_PATH[$1]} allocated=$((10#${RV_ALLOCATED[$1]}))
+  [ "$allocated" -gt 0 ] || return 1
+  case "${RV_GROUP[index]}" in
+    "$REVIEW_GROUP_LARGE") [ "$allocated" -ge $((RV_MIN_SIZE_MB * BYTES_PER_MB)) ] ;;
+    "$REVIEW_GROUP_DOWNLOADS")
+      [ "${path%/*}" = "$HOME_PHYS/$DOWNLOADS_FOLDER" ] || return 1
+      [ $((now - 10#${RV_MTIME[index]})) -ge $((RV_DOWNLOADS_AGE * SECONDS_PER_DAY)) ]
+      ;;
+    *) return 1 ;;
+  esac
+}
+
 # shellcheck disable=SC2034 # FINDER_ENABLED is read by trash.sh
 apply_item() {
-  local index=$1 path outcome
+  local index=$1 now=$2 path outcome
   path=${RV_PATH[index]}
-  if ! review_path_is_acceptable "$path"; then
+  if ! review_path_is_acceptable "$path" || ! item_still_qualifies "$index" "$now"; then
     A_CHANGED=$((A_CHANGED + 1))
     return 0
   fi
@@ -63,7 +74,8 @@ apply_item() {
 
 # Walks the selected ids ("1,5,9"); a repeated id counts once.
 apply_selection() {
-  local rest=$SELECTION_IDS id index seen=","
+  local rest=$SELECTION_IDS id index seen="," now
+  now=$(date +%s)
   while [ -n "$rest" ]; do
     id=${rest%%,*}
     case "$rest" in *,*) rest=${rest#*,} ;; *) rest="" ;; esac
@@ -75,7 +87,7 @@ apply_selection() {
       A_IGNORED=$((A_IGNORED + 1))
       continue
     fi
-    apply_item "$index"
+    apply_item "$index" "$now"
   done
 }
 
@@ -93,17 +105,18 @@ emit_review_apply() {
 }
 
 # The token is consumed before anything moves, so an interrupted run can
-# never be repeated with the same selection.
+# never be repeated with the same selection. A selection or manifest that
+# fails a check moves nothing and keeps the token, so the user can retry.
 run_review_apply() {
   local free_before free_after
-  review_paths
   validate_apply_request
+  review_manifest_is_sealed || fail SELECTION_INVALID
   load_selection
   review_discard || fail INTERNAL
   free_before=$(disk_bytes)
   is_uint "${free_before#* }" || free_before=0
   apply_selection
-  selection_discard "$OPT_TOKEN"
+  selection_discard "$OPT_TOKEN" "$RV_SECRET"
   free_after=$(disk_bytes)
   is_uint "${free_after#* }" || free_after=0
   emit_review_apply "${free_before#* }" "${free_after#* }"

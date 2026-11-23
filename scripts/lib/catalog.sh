@@ -46,17 +46,15 @@ readonly APP_CACHES_EXCLUDED_SYSTEM=("CloudKit" "FamilyCircle" "GeoServices" "Pa
 readonly CHROMIUM_CACHE_NAMES=("Cache" "Code Cache" "GPUCache")
 readonly SAFARI_CACHE_NAMES=("WebKitCache" "fsCachedData")
 readonly IOS_UPDATE_FOLDERS=("iPhone Software Updates" "iPad Software Updates" "iPod Software Updates")
-# Apps that keep caches next to their data in Application Support.
+# Apps that keep caches next to their data in Application Support. Only apps
+# whose folders are plain Chromium-style caches belong here: an app that keeps
+# downloads or messages in a cache-named folder must never be added.
 # folder|cache folder names|app names   (lists are comma separated)
 # Only the named folders directly inside the app folder are ever touched.
 readonly KNOWN_APP_CACHE_ROWS=(
   "Slack|Cache,Code Cache,GPUCache|Slack"
   "discord|Cache,Code Cache,GPUCache|Discord"
   "Microsoft/Teams|Cache,Code Cache,GPUCache|Microsoft Teams,Microsoft Teams classic"
-  "Spotify|PersistentCache|Spotify"
-  "zoom.us|Cache,Code Cache,GPUCache|zoom.us"
-  "WhatsApp|Cache,Code Cache,GPUCache|WhatsApp"
-  "Telegram Desktop|Cache,Code Cache,GPUCache|Telegram,Telegram Desktop,Telegram Lite"
   "Code|Cache,Code Cache,GPUCache,CachedData|Visual Studio Code,Code"
 )
 readonly REBUILD_COST_NONE=1
@@ -90,7 +88,7 @@ category_lookup() {
 # 3 = long re-download or rebuild.
 category_rebuild_cost() {
   case "$1" in
-    temp-files | logs | trash | browser-* | docker-dangling | homebrew-cache | xcode-simulators-unavailable)
+    temp-files | logs | browser-*)
       printf '%s' "$REBUILD_COST_NONE"
       ;;
     gradle-cache | cargo-cache | xcode-derived-data | node-modules-stale)

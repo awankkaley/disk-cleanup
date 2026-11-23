@@ -191,15 +191,45 @@ Describe 'category catalog' {
         }
     }
 
-    It 'knows the chat apps everyday users have, by cache folder only' {
+    It 'knows only the apps whose cache layout was checked, by cache folder only' {
         $names = @($script:KNOWN_APP_CACHES | ForEach-Object { $_['Name'] })
-        foreach ($expected in @('Slack', 'Discord', 'Microsoft Teams', 'Spotify', 'Visual Studio Code', 'WhatsApp', 'Telegram')) {
-            $names | Should -Contain $expected
-        }
+        ($names -join ',') | Should -BeExactly 'Slack,Discord,Microsoft Teams,Visual Studio Code'
+        ($script:APP_CACHE_DIR_NAMES -join ',') | Should -BeExactly 'Cache,Code Cache,GPUCache,CachedData'
         foreach ($app in $script:KNOWN_APP_CACHES) {
             $app['Path'] | Should -Not -Match '^[\\/]|\.\.|:'
             @($app['Processes']).Count | Should -BeGreaterThan 0
         }
+    }
+
+    It 'never touches the folders of Spotify, WhatsApp, Telegram or Zoom' {
+        $catalog = [System.IO.File]::ReadAllText((Join-Path -Path $script:scriptRoot -ChildPath 'lib\Catalog.ps1'))
+
+        $catalog | Should -Not -Match '(?i)spotify|whatsapp|telegram|zoom|tdata|PersistentCache'
+        foreach ($app in $script:KNOWN_APP_CACHES) {
+            (@($app['Name'], $app['Path']) + @($app['Processes'])) -join ' ' | Should -Not -Match '(?i)spotify|whatsapp|telegram|zoom'
+        }
+    }
+
+    It 'gives every category the rebuild cost shared with macOS' {
+        $expected = @{
+            'temp-files' = 1; 'crash-dumps' = 1; 'thumbnail-cache' = 1; 'browser-chrome' = 1; 'browser-edge' = 1
+            'browser-firefox' = 1; 'browser-brave' = 1; 'browser-opera' = 1; 'browser-arc' = 1
+            'app-caches' = 2; 'store-app-caches' = 2; 'npm-cache' = 2; 'yarn-cache' = 2; 'pnpm-store' = 2
+            'pip-cache' = 2; 'go-cache' = 2; 'docker-dangling' = 2; 'trash' = 2
+            'gradle-cache' = 3; 'cargo-cache' = 3; 'node-modules-stale' = 3
+        }
+        $script:CATEGORIES.Count | Should -Be $expected.Count
+        foreach ($category in $script:CATEGORIES) {
+            $category['RebuildCost'] | Should -Be $expected[$category['Id']]
+        }
+        $script:BYTES_PER_GIGABYTE | Should -Be 1073741824
+    }
+
+    It 'creates the selection secret in one place and never hands it to the output document' {
+        @(Get-SourceMatchList -Pattern 'Get-FreshSecret').Count | Should -Be 2
+        @(Get-SourceMatchList -Pattern 'RandomNumberGenerator').Count | Should -Be 1
+        $documentLines = @(Get-SourceLineList -Pattern 'Get-ReviewDocument|Get-ReviewApplyDocument|Get-ErrorDocument')
+        ($documentLines -join ' ') | Should -Not -Match '(?i)secret'
     }
 
     It 'limits every known app and browser to cache folder names' {

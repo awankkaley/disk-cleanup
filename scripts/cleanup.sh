@@ -213,10 +213,17 @@ parse_apply_args() {
   done
 }
 
+# Every command, help and version included, first discards a review that has
+# expired. It is skipped in an environment the tool would refuse anyway.
+sweep_if_possible() {
+  if load_environment; then review_sweep; fi
+}
+
 main() {
   local action=${1:-}
   exec 2> /dev/null
   trap emit_error_if_silent EXIT
+  sweep_if_possible
   [ $# -ge 1 ] || fail USAGE
   shift
   case "$action" in

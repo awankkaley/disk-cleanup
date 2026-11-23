@@ -261,26 +261,30 @@ function Invoke-CleanCommand {
 }
 
 function Get-CommandDocument {
-    param($Options)
+    param($Options, [string]$ExpiredReviewToken = '')
     if ($Options.Command -eq 'help') { return (Get-HelpDocument) }
     if ($Options.Command -eq 'version') { return (Get-VersionDocument) }
     if ($Options.Command -eq $script:COMMAND_SCAN) { return (Invoke-ScanCommand -Options $Options) }
     if ($Options.Command -eq $script:COMMAND_CLEAN) { return (Invoke-CleanCommand -Options $Options) }
     if ($Options.Command -eq $script:COMMAND_REVIEW) { return (Invoke-ReviewCommand -Options $Options) }
-    if ($Options.Command -eq $script:COMMAND_REVIEW_APPLY) { return (Invoke-ReviewApplyCommand -Options $Options) }
+    if ($Options.Command -eq $script:COMMAND_REVIEW_APPLY) {
+        return (Invoke-ReviewApplyCommand -Options $Options -ExpiredToken $ExpiredReviewToken)
+    }
     Invoke-CleanupFailure -Code 'INTERNAL'
 }
 
 # Runs one command line and returns the JSON document plus the process exit code.
 # Never throws and never writes to the host, so tests can call it in-process.
+# Every run, whatever the command, first discards a review that outlived its token.
 function Invoke-Cleanup {
     param([string[]]$Arguments)
     try {
         if (-not (Test-SupportedPlatform)) { Invoke-CleanupFailure -Code 'UNSUPPORTED_PLATFORM' }
+        $expiredReviewToken = [string](Clear-ExpiredReview)
         $options = ConvertFrom-CliArgument -Arguments $Arguments
         $needsHome = ($options.Command -ne 'help') -and ($options.Command -ne 'version')
         if ($needsHome -and (-not (Test-EnvironmentSane))) { Invoke-CleanupFailure -Code 'INTERNAL' }
-        $document = Get-CommandDocument -Options $options
+        $document = Get-CommandDocument -Options $options -ExpiredReviewToken $expiredReviewToken
         $exitCode = $script:EXIT_OK
     } catch {
         $code = Get-FailureCode -Message $_.Exception.Message

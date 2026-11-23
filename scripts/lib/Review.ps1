@@ -40,13 +40,29 @@ $script:RECALL_ON_OPEN_FLAG = 262144
 $script:RECALL_ON_DATA_ACCESS_FLAG = 4194304
 $script:CLOUD_PLACEHOLDER_FLAGS = $script:OFFLINE_FLAG -bor $script:RECALL_ON_OPEN_FLAG -bor $script:RECALL_ON_DATA_ACCESS_FLAG
 
-# Line and paragraph separators plus the characters that reorder displayed text.
-$script:REVIEW_UNSAFE_CHAR_CODES = @(8232, 8233, 8234, 8235, 8236, 8237, 8238, 8294, 8295, 8296, 8297)
+# Line and paragraph separators plus the characters that reorder displayed text:
+# U+061C, U+200E, U+200F, U+202A to U+202E and U+2066 to U+2069.
+$script:REVIEW_UNSAFE_CHAR_CODES = @(
+    1564, 8206, 8207, 8232, 8233, 8234, 8235, 8236, 8237, 8238, 8294, 8295, 8296, 8297
+)
 
+# The selection secret proves that a selection was saved from the report page. It is
+# written to the manifest and into the report only, never to stdout or stderr.
+$script:REVIEW_SECRET_BYTES = 16
+$script:REVIEW_SECRET_PATTERN = '^[0-9a-f]{32}$'
+
+# Manifest layout: seven header lines (name, token, epoch, sha256, secret,
+# min-size-mb, downloads-age-days), then one line per item. The sha256 line covers
+# every line below it.
 $script:MANIFEST_HEADER = 'disk-cleanup-review-manifest 1'
-$script:MANIFEST_HEADER_LINES = 3
+$script:MANIFEST_HEADER_LINES = 7
+$script:MANIFEST_DIGEST_LINES = 4
 $script:MANIFEST_TOKEN_PATTERN = '^token ([0-9a-f]{8})$'
 $script:MANIFEST_EPOCH_PATTERN = '^epoch ([0-9]{1,12})$'
+$script:MANIFEST_DIGEST_PATTERN = '^sha256 ([0-9a-f]{64})$'
+$script:MANIFEST_SECRET_PATTERN = '^secret ([0-9a-f]{32})$'
+$script:MANIFEST_MIN_SIZE_PATTERN = '^min-size-mb ([0-9]{1,7})$'
+$script:MANIFEST_AGE_PATTERN = '^downloads-age-days ([0-9]{1,5})$'
 $script:MANIFEST_ITEM_PATTERN = '^([0-9]{1,4})\t([0-9]{1,18})\t([0-9]{1,18})\t([0-9]{1,18})\t(large-files|old-downloads)\t([^\t\r\n]+)$'
 $script:MANIFEST_MAX_BYTES = 4194304
 $script:MANIFEST_LINE_FEED = [char]10
@@ -122,6 +138,7 @@ function Test-ReviewPathAllowed {
     $leafIndex = $segments.Count - 1
     for ($index = 0; $index -lt $leafIndex; $index++) {
         if (Test-ReviewDirectoryPruned -Name $segments[$index]) { return $false }
+        if (-not (Test-ReviewNameSafe -Name $segments[$index])) { return $false }
     }
     if (-not (Test-ReviewNameSafe -Name $segments[$leafIndex])) { return $false }
     return (Test-LinkFreeBelow -Target $Path -Root $Roots.Home)
@@ -233,22 +250,66 @@ function Write-ReviewStateFile {
     [System.IO.File]::WriteAllText($Path, $Text, $encoding)
 }
 
+# 32 lowercase hex characters from the system's cryptographic random source.
+function Get-FreshSecret {
+    $bytes = New-Object -TypeName byte[] -ArgumentList $script:REVIEW_SECRET_BYTES
+    $generator = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $generator.GetBytes($bytes)
+    } finally {
+        $generator.Dispose()
+    }
+    return ([System.BitConverter]::ToString($bytes).Replace('-', '').ToLowerInvariant())
+}
+
+# The size and age thresholds of a review, as the walk and review-apply use them.
+function Get-ReviewRule {
+    param([int]$MinSizeMb, [int]$DownloadsAgeDays)
+    return [pscustomobject]@{
+        MinBytes        = [long]$MinSizeMb * $script:BYTES_PER_MEGABYTE
+        DownloadsCutoff = (Get-UtcNow).AddDays(-1 * $DownloadsAgeDays)
+    }
+}
+
+# SHA-256 over the manifest lines below the digest line: the secret, the review
+# options and every item line. An edited, added or removed line no longer matches.
+function Get-ManifestDigest {
+    param([string[]]$Lines = @())
+    $feed = [string]$script:MANIFEST_LINE_FEED
+    $encoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false
+    $bytes = [byte[]]$encoding.GetBytes((($Lines -join $feed) + $feed))
+    $hasher = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hash = [byte[]]$hasher.ComputeHash($bytes)
+    } finally {
+        $hasher.Dispose()
+    }
+    return ([System.BitConverter]::ToString($hash).Replace('-', '').ToLowerInvariant())
+}
+
 # One line per item: id, size on disk, length, modification time in ticks, group,
 # absolute path. Names with a tab or a line break were never listed, so the format
 # cannot be broken by a file name.
 function ConvertTo-ManifestText {
-    param([string]$Token, [object[]]$Items = @())
-    $lines = New-Object -TypeName 'System.Collections.Generic.List[string]'
-    $lines.Add($script:MANIFEST_HEADER)
-    $lines.Add('token ' + $Token)
-    $lines.Add('epoch ' + [string](Get-EpochSecond))
+    param([string]$Token, [string]$Secret, $Options, [object[]]$Items = @())
+    $body = New-Object -TypeName 'System.Collections.Generic.List[string]'
+    $body.Add('secret ' + $Secret)
+    $body.Add('min-size-mb ' + [string]([int]$Options.MinSizeMb))
+    $body.Add('downloads-age-days ' + [string]([int]$Options.DownloadsAgeDays))
     foreach ($item in $Items) {
         $fields = @(
             [string]$item.Id, [string]$item.Size, [string]$item.Length, [string]$item.MtimeTicks,
             [string]$item.Group, [string]$item.Path
         )
-        $lines.Add(($fields -join [string]$script:MANIFEST_FIELD_SEPARATOR))
+        $body.Add(($fields -join [string]$script:MANIFEST_FIELD_SEPARATOR))
     }
+    $bodyLines = [string[]]$body.ToArray()
+    $lines = New-Object -TypeName 'System.Collections.Generic.List[string]'
+    $lines.Add($script:MANIFEST_HEADER)
+    $lines.Add('token ' + $Token)
+    $lines.Add('epoch ' + [string](Get-EpochSecond))
+    $lines.Add('sha256 ' + (Get-ManifestDigest -Lines $bodyLines))
+    foreach ($line in $bodyLines) { $lines.Add($line) }
     return (($lines.ToArray() -join [string]$script:MANIFEST_LINE_FEED) + [string]$script:MANIFEST_LINE_FEED)
 }
 
@@ -266,27 +327,50 @@ function ConvertFrom-ManifestLine {
     }
 }
 
+# Returns the six header values below the name line, in file order: token, epoch,
+# digest, secret, min-size-mb, downloads-age-days. Throws on anything unexpected.
+function ConvertFrom-ManifestHeader {
+    param([string[]]$Lines = @())
+    if ($Lines.Count -lt $script:MANIFEST_HEADER_LINES) { throw 'manifest is too short' }
+    if ([string]$Lines[0] -cne $script:MANIFEST_HEADER) { throw 'manifest header is unknown' }
+    $patterns = @(
+        $script:MANIFEST_TOKEN_PATTERN, $script:MANIFEST_EPOCH_PATTERN, $script:MANIFEST_DIGEST_PATTERN,
+        $script:MANIFEST_SECRET_PATTERN, $script:MANIFEST_MIN_SIZE_PATTERN, $script:MANIFEST_AGE_PATTERN
+    )
+    for ($index = 0; $index -lt $patterns.Count; $index++) {
+        $found = [regex]::Match([string]$Lines[$index + 1], [string]$patterns[$index])
+        if (-not $found.Success) { throw 'manifest header is malformed' }
+        [string]$found.Groups[1].Value
+    }
+}
+
 # Parses the manifest text into a record. Throws on anything unexpected; the caller
-# maps that to TOKEN_INVALID. Paths are data only: each one is checked again by the
-# review guard before anything is done with it.
+# maps that to TOKEN_INVALID. IntegrityOk says whether the lines below the digest
+# line still match it. Paths are data only: each one is checked again by the review
+# guard and by the rule of its group before anything is done with it.
 function ConvertFrom-ManifestText {
     param([string]$Text)
-    $lines = @($Text.Split($script:MANIFEST_LINE_FEED) | Where-Object { $_.Length -gt 0 })
-    if ($lines.Count -lt $script:MANIFEST_HEADER_LINES) { throw 'manifest is too short' }
-    if ([string]$lines[0] -cne $script:MANIFEST_HEADER) { throw 'manifest header is unknown' }
-    $token = [regex]::Match([string]$lines[1], $script:MANIFEST_TOKEN_PATTERN)
-    $epoch = [regex]::Match([string]$lines[2], $script:MANIFEST_EPOCH_PATTERN)
-    if (-not ($token.Success -and $epoch.Success)) { throw 'manifest header is malformed' }
+    $lines = [string[]]@($Text.Split($script:MANIFEST_LINE_FEED) | Where-Object { $_.Length -gt 0 })
+    $header = [string[]]@(ConvertFrom-ManifestHeader -Lines $lines)
+    $minSizeMb = [int]$header[4]
+    $downloadsAgeDays = [int]$header[5]
+    if ($minSizeMb -lt $script:REVIEW_MIN_SIZE_MB_FLOOR) { throw 'manifest size threshold is too low' }
+    if ($downloadsAgeDays -lt $script:REVIEW_DOWNLOADS_AGE_DAYS_FLOOR) { throw 'manifest age threshold is too low' }
     $items = New-Object -TypeName 'System.Collections.Generic.Dictionary[int,object]'
     for ($index = $script:MANIFEST_HEADER_LINES; $index -lt $lines.Count; $index++) {
         $item = ConvertFrom-ManifestLine -Line ([string]$lines[$index])
         if ($items.ContainsKey($item.Id)) { throw 'manifest id is repeated' }
         $items.Add($item.Id, $item)
     }
+    $body = [string[]]@($lines | Select-Object -Skip $script:MANIFEST_DIGEST_LINES)
     return [pscustomobject]@{
-        Token = [string]$token.Groups[1].Value
-        Epoch = [long]$epoch.Groups[1].Value
-        Items = $items
+        Token            = [string]$header[0]
+        Epoch            = [long]$header[1]
+        Secret           = [string]$header[3]
+        MinSizeMb        = $minSizeMb
+        DownloadsAgeDays = $downloadsAgeDays
+        IntegrityOk      = ((Get-ManifestDigest -Lines $body) -ceq [string]$header[2])
+        Items            = $items
     }
 }
 
@@ -304,11 +388,60 @@ function Read-ReviewManifestFile {
     }
 }
 
-# The review token lives in the manifest, apart from the scan state: a review does
-# not invalidate a scan and a scan does not invalidate a review.
-function Read-ReviewManifest {
-    param([string]$Token)
+# Age in seconds of the review that is on disk and its token, or nothing when there
+# is no review. The manifest epoch decides; a manifest that cannot be read or is
+# dated in the future, and a report without a manifest, are dated by the newer file.
+function Get-ReviewStateInfo {
     $manifest = Read-ReviewManifestFile
+    $now = Get-EpochSecond
+    if (($null -ne $manifest) -and ($manifest.Epoch -le $now)) {
+        return [pscustomobject]@{ Age = [long]($now - $manifest.Epoch); Token = [string]$manifest.Token }
+    }
+    $newest = $null
+    foreach ($path in @((Get-ReviewManifestPath), (Get-ReviewReportPath))) {
+        if (-not [System.IO.File]::Exists($path)) { continue }
+        $written = [System.IO.File]::GetLastWriteTimeUtc($path)
+        if (($null -eq $newest) -or ($written -gt $newest)) { $newest = $written }
+    }
+    if ($null -eq $newest) { return }
+    $age = [long][System.Math]::Floor(((Get-UtcNow) - $newest).TotalSeconds)
+    return [pscustomobject]@{ Age = $age; Token = '' }
+}
+
+# The manifest and the report hold personal file names. Both are the tool's own
+# files and go through the guarded delete like every other removal.
+function Clear-ReviewStateFile {
+    foreach ($path in @((Get-ReviewManifestPath), (Get-ReviewReportPath))) {
+        if (-not [System.IO.File]::Exists($path)) { continue }
+        $null = Invoke-GuardedDelete -Target (Get-CleanTarget -Path $path -KeepRoot $false) -Sink $null
+    }
+}
+
+# Runs at the start of every command: a review older than its lifetime is discarded,
+# so file names do not stay on disk when review-apply never runs. Returns the token
+# of the discarded review, or an empty string. Never fails the command.
+function Clear-ExpiredReview {
+    try {
+        if (-not (Test-EnvironmentSane)) { return '' }
+        $info = Get-ReviewStateInfo
+        if ($null -eq $info) { return '' }
+        if ([long]$info.Age -lt $script:REVIEW_TOKEN_TTL_SECONDS) { return '' }
+        Clear-ReviewStateFile
+        return [string]$info.Token
+    } catch {
+        return ''
+    }
+}
+
+# The review token lives in the manifest, apart from the scan state: a review does
+# not invalidate a scan and a scan does not invalidate a review. ExpiredToken is the
+# token of a review that this run discarded because it was too old.
+function Read-ReviewManifest {
+    param([string]$Token, [string]$ExpiredToken = '')
+    $manifest = Read-ReviewManifestFile
+    if (($null -eq $manifest) -and ($ExpiredToken.Length -gt 0) -and ($ExpiredToken -ceq $Token)) {
+        Invoke-CleanupFailure -Code 'TOKEN_EXPIRED'
+    }
     if ($null -eq $manifest) { Invoke-CleanupFailure -Code 'TOKEN_INVALID' }
     if ($manifest.Token -cne $Token) { Invoke-CleanupFailure -Code 'TOKEN_INVALID' }
     $age = (Get-EpochSecond) - $manifest.Epoch
@@ -359,21 +492,21 @@ function Get-ReviewDocument {
 }
 
 # Lists candidates for the user and writes the manifest plus the local report.
-# Nothing is moved or deleted here, and no file or folder name reaches stdout.
+# Nothing is moved or deleted here, and neither a file or folder name nor the
+# selection secret reaches stdout.
 function Invoke-ReviewCommand {
     param($Options)
     $roots = Get-ReviewRoot
-    $rule = [pscustomobject]@{
-        MinBytes        = [long]$Options.MinSizeMb * $script:BYTES_PER_MEGABYTE
-        DownloadsCutoff = (Get-UtcNow).AddDays(-1 * $Options.DownloadsAgeDays)
-    }
+    $rule = Get-ReviewRule -MinSizeMb $Options.MinSizeMb -DownloadsAgeDays $Options.DownloadsAgeDays
     $walk = Get-ReviewCandidateList -Roots $roots -Rule $rule
     $selection = Select-ReviewItem -Candidates $walk.Candidates -Roots $roots
     $token = Get-FreshToken
+    $secret = Get-FreshSecret
     $reportPath = Get-ReviewReportPath
-    $report = Get-ReviewReportHtml -Token $token -Items $selection.Items -HomeRoot $roots.Home
+    $report = Get-ReviewReportHtml -Token $token -Secret $secret -Items $selection.Items -HomeRoot $roots.Home
+    $manifest = ConvertTo-ManifestText -Token $token -Secret $secret -Options $Options -Items $selection.Items
     Write-ReviewStateFile -Path $reportPath -Text $report
-    Write-ReviewStateFile -Path (Get-ReviewManifestPath) -Text (ConvertTo-ManifestText -Token $token -Items $selection.Items)
+    Write-ReviewStateFile -Path (Get-ReviewManifestPath) -Text $manifest
     $opened = ((Open-ReviewReport -Path $reportPath) -eq $true)
     return (Get-ReviewDocument -Token $token -Selection $selection -Denied $walk.Denied -Opened $opened)
 }

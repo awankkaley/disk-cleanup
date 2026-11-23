@@ -41,6 +41,7 @@ repoint_manifest() {
     /usr/bin/awk -F '\t' '$1 == ENVIRON["WANTED_ID"] && NF == 6 { print ENVIRON["NEW_LINE"]; next } { print }' \
     "$MANIFEST" > "$SANDBOX/manifest.new"
   /bin/cat "$SANDBOX/manifest.new" > "$MANIFEST"
+  reseal_manifest
 }
 
 @test "only ticked items are moved to the Trash, intact" {
@@ -173,13 +174,16 @@ repoint_manifest() {
   assert_exists "$ARCHIVE"
 }
 
-@test "an empty selection trashes nothing and consumes the token" {
+@test "an empty selection trashes nothing and discards the review state" {
   write_selection "$TOKEN" ""
   apply_review
   assert_json_schema review-apply
   [ "$(count selected_count)" = "0" ]
+  [ "$(count trashed_count)" = "0" ]
   assert_exists "$VIDEO"
   assert_missing "$MANIFEST"
+  assert_missing "$REPORT"
+  assert_missing "$HOME_DIR/Downloads/$SELECTION_NAME"
 }
 
 @test "a file whose size changed is skipped" {
@@ -298,6 +302,7 @@ repoint_manifest() {
     printf '205\t%s\t%s\n' "$facts" "$HOME_DIR/./Library/secret.db"
     printf '206\t%s\t%s\n' "$facts" "/"
   } >> "$MANIFEST"
+  reseal_manifest
   write_selection "$TOKEN" "201,202,203,204,205,206"
   apply_review
   [ "$(count skipped_changed_count)" = "6" ]
@@ -416,9 +421,9 @@ repoint_manifest() {
 
 @test "selection files elsewhere, symlinked or oddly named do not count" {
   mkdir -p "$HOME_DIR/Downloads/sub" "$HOME_DIR/Documents"
-  printf '{"token":"%s","ids":[%s]}' "$TOKEN" "$VIDEO_ID" > "$HOME_DIR/Downloads/sub/$SELECTION_NAME"
-  printf '{"token":"%s","ids":[%s]}' "$TOKEN" "$VIDEO_ID" > "$HOME_DIR/Documents/$SELECTION_NAME"
-  printf '{"token":"%s","ids":[%s]}' "$TOKEN" "$VIDEO_ID" > "$OUTSIDE/real-selection"
+  printf '{"token":"%s","secret":"%s","ids":[%s]}' "$TOKEN" "$SECRET" "$VIDEO_ID" > "$HOME_DIR/Downloads/sub/$SELECTION_NAME"
+  printf '{"token":"%s","secret":"%s","ids":[%s]}' "$TOKEN" "$SECRET" "$VIDEO_ID" > "$HOME_DIR/Documents/$SELECTION_NAME"
+  printf '{"token":"%s","secret":"%s","ids":[%s]}' "$TOKEN" "$SECRET" "$VIDEO_ID" > "$OUTSIDE/real-selection"
   ln -s "$OUTSIDE/real-selection" "$HOME_DIR/Downloads/$SELECTION_NAME"
   write_selection "$TOKEN" "$VIDEO_ID" "disk-cleanup-selection-final.json"
   write_selection "$TOKEN" "$VIDEO_ID" "my-disk-cleanup-selection.json"
@@ -441,18 +446,23 @@ repoint_manifest() {
 
 @test "malformed selections are rejected" {
   local body bodies=(
-    "{\"token\":\"$TOKEN\",\"ids\":[1,2],\"extra\":true}"
-    "{\"token\":\"$TOKEN\",\"ids\":[1,2]} trailing"
-    "{\"token\":\"$TOKEN\",\"ids\":[1,,2]}"
-    "{\"token\":\"$TOKEN\",\"ids\":[1,2,]}"
-    "{\"token\":\"$TOKEN\",\"ids\":[-1]}"
-    "{\"token\":\"$TOKEN\",\"ids\":[\"1\"]}"
-    "{\"token\":\"$TOKEN\",\"ids\":[1.5]}"
-    "{\"token\":\"$TOKEN\",\"ids\":[1 2]}"
-    "{\"ids\":[1],\"token\":\"$TOKEN\"}"
-    "{\"token\":\"${TOKEN}0\",\"ids\":[1]}"
-    "{'token':'$TOKEN','ids':[1]}"
-    "{\"token\":\"$TOKEN\",\"ids\":[\$(touch $HOME_DIR/pwned)]}"
+    "{\"token\":\"$TOKEN\",\"secret\":\"$SECRET\",\"ids\":[1,2],\"extra\":true}"
+    "{\"token\":\"$TOKEN\",\"secret\":\"$SECRET\",\"ids\":[1,2]} trailing"
+    "{\"token\":\"$TOKEN\",\"secret\":\"$SECRET\",\"ids\":[1,,2]}"
+    "{\"token\":\"$TOKEN\",\"secret\":\"$SECRET\",\"ids\":[1,2,]}"
+    "{\"token\":\"$TOKEN\",\"secret\":\"$SECRET\",\"ids\":[-1]}"
+    "{\"token\":\"$TOKEN\",\"secret\":\"$SECRET\",\"ids\":[\"1\"]}"
+    "{\"token\":\"$TOKEN\",\"secret\":\"$SECRET\",\"ids\":[1.5]}"
+    "{\"token\":\"$TOKEN\",\"secret\":\"$SECRET\",\"ids\":[1 2]}"
+    "{\"ids\":[1],\"secret\":\"$SECRET\",\"token\":\"$TOKEN\"}"
+    "{\"secret\":\"$SECRET\",\"token\":\"$TOKEN\",\"ids\":[1]}"
+    "{\"token\":\"${TOKEN}0\",\"secret\":\"$SECRET\",\"ids\":[1]}"
+    "{\"token\":\"$TOKEN\",\"secret\":\"${SECRET}0\",\"ids\":[1]}"
+    "{\"token\":\"$TOKEN\",\"secret\":\"${SECRET%?}\",\"ids\":[1]}"
+    "{\"token\":\"$TOKEN\",\"secret\":\"\",\"ids\":[1]}"
+    "{\"token\":\"$TOKEN\",\"secret\":\"$SECRET\",\"secret\":\"$SECRET\",\"ids\":[1]}"
+    "{'token':'$TOKEN','secret':'$SECRET','ids':[1]}"
+    "{\"token\":\"$TOKEN\",\"secret\":\"$SECRET\",\"ids\":[\$(touch $HOME_DIR/pwned)]}"
     "token=$TOKEN; touch $HOME_DIR/pwned"
     ""
   )
@@ -469,7 +479,7 @@ repoint_manifest() {
 @test "an upper-case token in the selection is rejected" {
   local upper
   upper=$(printf '%s' "$TOKEN" | /usr/bin/tr 'a-f' 'A-F')
-  printf '{"token":"%s","ids":[%s]}' "${upper}" "$VIDEO_ID" > "$HOME_DIR/Downloads/$SELECTION_NAME"
+  printf '{"token":"%s","secret":"%s","ids":[%s]}' "${upper}" "$SECRET" "$VIDEO_ID" > "$HOME_DIR/Downloads/$SELECTION_NAME"
   [ "$upper" != "$TOKEN" ] || skip "token has no letters"
   apply_review
   assert_error SELECTION_INVALID
@@ -477,7 +487,7 @@ repoint_manifest() {
 
 @test "an oversized selection is rejected without being parsed" {
   {
-    printf '{"token":"%s","ids":[%s' "$TOKEN" "$VIDEO_ID"
+    printf '{"token":"%s","secret":"%s","ids":[%s' "$TOKEN" "$SECRET" "$VIDEO_ID"
     head -c 1100000 /dev/zero | /usr/bin/tr '\0' ' '
     printf ']}'
   } > "$HOME_DIR/Downloads/$SELECTION_NAME"
@@ -487,7 +497,7 @@ repoint_manifest() {
 }
 
 @test "whitespace in the selection is tolerated" {
-  printf ' {\n  "token" : "%s" ,\r\n\t"ids" : [ %s ,\n %s ]\n}\n' "$TOKEN" "$VIDEO_ID" "$FORM_ID" \
+  printf ' {\n  "token" : "%s" ,\r\n "secret"\t: "%s" ,\n\t"ids" : [ %s ,\n %s ]\n}\n' "$TOKEN" "$SECRET" "$VIDEO_ID" "$FORM_ID" \
     > "$HOME_DIR/Downloads/$SELECTION_NAME"
   apply_review
   [ "$status" -eq 0 ]
@@ -559,4 +569,166 @@ repoint_manifest() {
   [ -z "$stderr" ]
   run_cleanup clean --token "$scan_token" --categories browser-chrome
   [ "$status" -eq 0 ]
+}
+
+# --- the selection secret: a selection made from the token alone is refused ---
+
+@test "a forged selection without the secret is rejected and left alone" {
+  write_forged_selection "$TOKEN" "$VIDEO_ID,$ARCHIVE_ID"
+  apply_review
+  assert_error SELECTION_INVALID
+  assert_exists "$VIDEO"
+  assert_exists "$ARCHIVE"
+  assert_missing "$TRASH/walrus-video.mov"
+  assert_exists "$MANIFEST"
+  assert_exists "$HOME_DIR/Downloads/$SELECTION_NAME"
+  [[ "$output" != *"$SECRET"* ]]
+}
+
+@test "a selection with a wrong secret is rejected and left alone" {
+  local wrong
+  for wrong in "00000000000000000000000000000000" "$TOKEN$TOKEN$TOKEN$TOKEN" \
+    "$(printf '%s' "$SECRET" | /usr/bin/tr 'a-f' 'A-F')X" "${SECRET%?}"; do
+    write_selection "$TOKEN" "$VIDEO_ID" "$SELECTION_NAME" "$wrong"
+    apply_review
+    assert_error SELECTION_INVALID
+    assert_exists "$HOME_DIR/Downloads/$SELECTION_NAME"
+  done
+  assert_exists "$VIDEO"
+  assert_exists "$MANIFEST"
+}
+
+@test "the user's own selection still works after a forged one was refused" {
+  write_forged_selection "$TOKEN" "$ARCHIVE_ID"
+  apply_review
+  assert_error SELECTION_INVALID
+  write_selection "$TOKEN" "$VIDEO_ID" "disk-cleanup-selection (1).json"
+  apply_review
+  [ "$status" -eq 0 ]
+  [ "$(count trashed_count)" = "1" ]
+  trash_holds "walrus-video.mov"
+  assert_exists "$ARCHIVE"
+  assert_exists "$HOME_DIR/Downloads/$SELECTION_NAME"
+  assert_missing "$HOME_DIR/Downloads/disk-cleanup-selection (1).json"
+}
+
+@test "review-apply output never contains the secret" {
+  write_selection "$TOKEN" "$VIDEO_ID"
+  run --separate-stderr sandbox_env /bin/bash "$CLEANUP" review-apply --token "$TOKEN"
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  [[ "$output" != *"$SECRET"* ]]
+}
+
+# --- the manifest is not trusted: integrity line plus a re-check of each rule ---
+
+small_file_line() {
+  local id=$1 group=$2 path=$3 blocks
+  blocks=$(/usr/bin/stat -f '%b' "$path")
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$((blocks * 512))" "$(/usr/bin/stat -f '%z' "$path")" \
+    "$(/usr/bin/stat -f '%m' "$path")" "$group" "$path"
+}
+
+@test "a line appended to the manifest breaks the integrity check and nothing moves" {
+  make_file "$HOME_DIR/Documents/tax-letter.txt" 16
+  small_file_line 77 large-files "$HOME_DIR/Documents/tax-letter.txt" >> "$MANIFEST"
+  write_selection "$TOKEN" "77,$VIDEO_ID"
+  apply_review
+  assert_error SELECTION_INVALID
+  assert_exists "$HOME_DIR/Documents/tax-letter.txt"
+  assert_exists "$VIDEO"
+  assert_missing "$TRASH"
+  assert_private tax-letter walrus-video
+}
+
+@test "an edited or removed manifest line breaks the integrity check" {
+  /usr/bin/sed -i '' "s|$ARCHIVE\$|$IMAGE|" "$MANIFEST"
+  write_selection "$TOKEN" "$ARCHIVE_ID"
+  apply_review
+  assert_error SELECTION_INVALID
+  assert_exists "$IMAGE"
+  review_for_token
+  /usr/bin/sed -i '' '$d' "$MANIFEST"
+  write_selection "$TOKEN" "$VIDEO_ID"
+  apply_review
+  assert_error SELECTION_INVALID
+  assert_exists "$VIDEO"
+}
+
+@test "a tampered integrity line or secret is rejected" {
+  /usr/bin/sed -i '' 's/^integrity=.*/integrity=0000000000000000000000000000000000000000000000000000000000000000/' "$MANIFEST"
+  write_selection "$TOKEN" "$VIDEO_ID"
+  apply_review
+  assert_error SELECTION_INVALID
+  assert_exists "$VIDEO"
+  review_for_token
+  /usr/bin/sed -i '' 's/^secret=.*/secret=00000000000000000000000000000000/' "$MANIFEST"
+  write_selection "$TOKEN" "$VIDEO_ID" "$SELECTION_NAME" "00000000000000000000000000000000"
+  apply_review
+  assert_error SELECTION_INVALID
+  assert_exists "$VIDEO"
+}
+
+@test "even a re-sealed manifest cannot add a small file: the large-files rule is checked again" {
+  make_file "$HOME_DIR/Documents/tax-letter.txt" 16
+  small_file_line 77 large-files "$HOME_DIR/Documents/tax-letter.txt" >> "$MANIFEST"
+  reseal_manifest
+  write_selection "$TOKEN" "77,$VIDEO_ID"
+  apply_review
+  [ "$status" -eq 0 ]
+  [ "$(count skipped_changed_count)" = "1" ]
+  [ "$(count trashed_count)" = "1" ]
+  assert_exists "$HOME_DIR/Documents/tax-letter.txt"
+  trash_holds "walrus-video.mov"
+}
+
+@test "even a re-sealed manifest cannot add old-downloads items outside Downloads or newer than the threshold" {
+  make_file "$HOME_DIR/Documents/old-letter.txt" 16
+  age_path "$HOME_DIR/Documents/old-letter.txt" 400
+  make_file "$HOME_DIR/Downloads/sub/old-nested.txt" 16
+  age_path "$HOME_DIR/Downloads/sub/old-nested.txt" 400
+  age_path "$HOME_DIR/Downloads/unrelated-fresh.txt" 30
+  {
+    small_file_line 81 old-downloads "$HOME_DIR/Documents/old-letter.txt"
+    small_file_line 82 old-downloads "$HOME_DIR/Downloads/sub/old-nested.txt"
+    small_file_line 83 old-downloads "$HOME_DIR/Downloads/unrelated-fresh.txt"
+    small_file_line 84 other-group "$HOME_DIR/Downloads/ibis-form.pdf"
+  } >> "$MANIFEST"
+  reseal_manifest
+  write_selection "$TOKEN" "81,82,83,84,$FORM_ID"
+  apply_review
+  [ "$status" -eq 0 ]
+  [ "$(count selected_count)" = "5" ]
+  [ "$(count skipped_changed_count)" = "3" ]
+  [ "$(count ignored_count)" = "1" ]
+  [ "$(count trashed_count)" = "1" ]
+  assert_exists "$HOME_DIR/Documents/old-letter.txt"
+  assert_exists "$HOME_DIR/Downloads/sub/old-nested.txt"
+  assert_exists "$HOME_DIR/Downloads/unrelated-fresh.txt"
+  trash_holds "ibis-form.pdf"
+}
+
+@test "review options in the header are validated and cannot be loosened below the floors" {
+  /usr/bin/sed -i '' 's/^min_size_mb=.*/min_size_mb=1/' "$MANIFEST"
+  write_selection "$TOKEN" "$VIDEO_ID"
+  apply_review
+  assert_error TOKEN_INVALID
+  assert_exists "$VIDEO"
+  review_for_token
+  /usr/bin/sed -i '' 's/^downloads_age_days=.*/downloads_age_days=0/' "$MANIFEST"
+  write_selection "$TOKEN" "$VIDEO_ID"
+  apply_review
+  assert_error TOKEN_INVALID
+  assert_exists "$VIDEO"
+}
+
+@test "a re-sealed manifest pointing at a name with bidirectional controls is refused" {
+  local spoof="$HOME_DIR/Documents/invoice-"$'\xe2\x80\xae'"fdp.exe"
+  make_big_file "$spoof" 11
+  repoint_manifest "$ARCHIVE_ID" "$spoof"
+  write_selection "$TOKEN" "$ARCHIVE_ID"
+  apply_review
+  [ "$(count skipped_changed_count)" = "1" ]
+  [ "$(count trashed_count)" = "0" ]
+  assert_exists "$spoof"
 }

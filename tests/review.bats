@@ -295,10 +295,69 @@ not_listed() {
   [ "$(/bin/cat "$OUTSIDE/victim-file")" = "keep" ]
 }
 
-@test "the review walks the home directory with a single find and never hashes" {
+@test "the review walks the home directory with a single find and never hashes files" {
   local review_code="$PROJECT_ROOT/scripts/lib/review.sh"
   [ "$(/usr/bin/grep -cE '(^|[^[:alnum:]_])find -P' "$review_code")" -eq 1 ]
-  run /usr/bin/grep -nE '(^|[^[:alnum:]_])(shasum|md5|cksum|openssl|sha256sum)([^[:alnum:]_]|$)' \
+  run /usr/bin/grep -nE '(^|[^[:alnum:]_])(md5|cksum|openssl|sha256sum)([^[:alnum:]_]|$)' \
     "$PROJECT_ROOT"/scripts/cleanup.sh "$PROJECT_ROOT"/scripts/lib/*.sh
   [ -z "$output" ]
+  # The one hash call seals the manifest; it reads standard input only.
+  [ "$(/usr/bin/grep -hvE '^[[:space:]]*#' "$PROJECT_ROOT"/scripts/cleanup.sh "$PROJECT_ROOT"/scripts/lib/*.sh |
+    /usr/bin/grep -cE '(^|[^[:alnum:]_])shasum([^[:alnum:]_]|$)')" -eq 1 ]
+  /usr/bin/grep -qE '\| shasum -a 256( 2> /dev/null)?\)?$' "$review_code"
+}
+
+@test "the manifest header records the secret, the review options and an integrity line" {
+  review_for_token --downloads-age-days 30
+  [ "$(/usr/bin/sed -n 1p "$MANIFEST")" = "format=2" ]
+  [ "$(/usr/bin/sed -n 2p "$MANIFEST")" = "token=$TOKEN" ]
+  [[ "$(/usr/bin/sed -n 3p "$MANIFEST")" =~ ^epoch=[0-9]+$ ]]
+  [[ "$(/usr/bin/sed -n 4p "$MANIFEST")" =~ ^secret=[0-9a-f]{32}$ ]]
+  [ "$(/usr/bin/sed -n 5p "$MANIFEST")" = "min_size_mb=10" ]
+  [ "$(/usr/bin/sed -n 6p "$MANIFEST")" = "downloads_age_days=30" ]
+  [[ "$(/usr/bin/sed -n 7p "$MANIFEST")" =~ ^integrity=[0-9a-f]{64}$ ]]
+  [[ "$(/usr/bin/sed -n 8p "$MANIFEST")" == "1	"* ]]
+  local sealed=$(manifest_value integrity)
+  reseal_manifest
+  [ "$(manifest_value integrity)" = "$sealed" ]
+}
+
+@test "the selection secret never reaches stdout or stderr" {
+  run --separate-stderr sandbox_env /bin/bash "$CLEANUP" review --min-size-mb 10
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  local secret
+  secret=$(/usr/bin/sed -n 's/^secret=//p' "$STATE_DIR/review-manifest")
+  [ "${#secret}" -eq 32 ]
+  [[ "$output" != *"$secret"* ]]
+  [[ "$output" != *"secret"* ]]
+  run /usr/bin/grep -cE '[0-9a-f]{9,}' <<< "$output"
+  [ "$output" = "0" ]
+}
+
+@test "every review gets a fresh secret" {
+  review_for_token
+  local first=$SECRET
+  review_for_token
+  [ "$first" != "$SECRET" ]
+  [ "$SECRET" != "$TOKEN$TOKEN$TOKEN$TOKEN" ]
+}
+
+@test "names with bidirectional control characters are left out of the review" {
+  local mark
+  for mark in $'\xe2\x80\xaa' $'\xe2\x80\xab' $'\xe2\x80\xac' $'\xe2\x80\xad' $'\xe2\x80\xae' \
+    $'\xe2\x81\xa6' $'\xe2\x81\xa7' $'\xe2\x81\xa8' $'\xe2\x81\xa9' $'\xe2\x80\x8e' $'\xe2\x80\x8f' $'\xd8\x9c'; do
+    make_big_file "$HOME_DIR/Documents/spoof-${mark}gpj.exe" 11
+  done
+  make_big_file "$HOME_DIR/Documents/folder-"$'\xe2\x80\xae'"-spoof/inner-big.bin" 11
+  make_file "$HOME_DIR/Downloads/old-"$'\xe2\x80\xae'"-spoof.pdf" 16
+  age_path "$HOME_DIR/Downloads/old-"$'\xe2\x80\xae'"-spoof.pdf" 200
+  make_big_file "$HOME_DIR/Documents/عربي עברית 文件 é—.bin" 11
+  review_for_token
+  [ "$(json get total_item_count)" = "5" ]
+  listed "$HOME_DIR/Documents/عربي עברית 文件 é—.bin"
+  not_listed "spoof"
+  not_listed "inner-big"
+  run /usr/bin/grep -c 'spoof' "$REPORT"
+  [ "$output" = "0" ]
 }

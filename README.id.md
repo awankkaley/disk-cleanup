@@ -208,7 +208,7 @@ Yang perlu kamu tahu:
 - **AI tidak bisa melihat halaman itu.** Halamannya berupa file di komputermu sendiri yang dibuka
   langsung oleh browser. Tidak dikirim ke AI atau ke mana pun, dan halaman itu tidak memuat apa-apa
   dari internet. Yang disampaikan ke asisten hanya jumlah item yang ditemukan dan total ukurannya,
-  lalu setelahnya berapa yang dipindahkan. File pilihan yang tersimpan hanya berisi sebuah kode dan
+  lalu setelahnya berapa yang dipindahkan. File pilihan yang tersimpan hanya berisi dua kode dan
   nomor-nomor item, tanpa nama file.
 - **Tidak ada yang terhapus dari halaman itu.** Mencentang dan menyimpan belum mengubah apa-apa.
   File baru dipindahkan setelah kamu bilang "sudah" di obrolan.
@@ -225,6 +225,8 @@ Yang perlu kamu tahu:
 - **File yang berubah tidak disentuh.** Kalau sebuah file diubah, dipindah, atau diganti setelah
   halamannya dibuat, file itu dilewati.
 - **Halamannya berlaku satu jam** dan hanya untuk sekali pakai. Lewat dari itu, minta review baru.
+  Halaman yang sudah kedaluwarsa beserta daftar di baliknya dihapus otomatis saat skill ini
+  dijalankan lagi.
 - **Yang tidak pernah ditampilkan:** apa pun di dalam aplikasi, folder sistem `Library` atau
   `AppData`, folder tersembunyi, dan library yang oleh macOS ditampilkan sebagai satu item, misalnya
   library Photos.
@@ -259,11 +261,14 @@ Ini berlaku apa pun yang dilakukan AI, karena skripnya memang ditulis begitu dan
 - **Lokasi yang dibersihkan sudah ditentukan.** Pembersih hanya bisa membersihkan kategori yang
   tercantum di bawah. Tidak ada mode "bersihkan semuanya" dan tidak ada cara menyuruhnya menghapus
   folder tertentu.
-- **File pribadi hanya lewat centanganmu sendiri, dan hanya ke Tempat Sampah.** Sebuah file pribadi
-  baru dipindahkan kalau kamu mencentangnya di halaman review, filenya masih sama (ukuran dan
-  tanggalnya tidak berubah), dan letaknya di dalam folder home kamu di luar lokasi yang dilindungi.
-  File itu dipindahkan ke Tempat Sampah atau Recycle Bin, tidak pernah dihapus permanen, apa pun
-  yang terjadi.
+- **File pribadi hanya dari daftar review, dan hanya ke Tempat Sampah.** Sebuah file pribadi baru
+  dipindahkan kalau disebut di pilihan yang tersimpan, memang ada di daftar review itu, masih
+  memenuhi aturan yang membuatnya masuk daftar (masih sebesar itu, atau masih file lama yang
+  letaknya langsung di Downloads), filenya masih sama (ukuran dan tanggalnya tidak berubah), dan
+  letaknya di dalam folder home kamu di luar lokasi yang dilindungi. File itu dipindahkan ke Tempat
+  Sampah atau Recycle Bin, tidak pernah dihapus permanen, apa pun yang terjadi. Yang **tidak** bisa
+  dibuktikan skrip adalah bahwa pilihan itu benar-benar kamu sendiri yang menyimpan: lihat
+  [Siapa yang menyimpan pilihan](#siapa-yang-menyimpan-pilihan) di bawah.
 - **Penghapusan berpengaman.** Setiap penghapusan permanen lewat satu rutin yang menolak apa pun di
   luar folder home kamu, apa pun yang terlalu dekat dengan pangkal folder itu, folder yang di
   dalamnya ada folder terlindungi, dan semua symbolic link. Link tidak pernah diikuti.
@@ -292,19 +297,40 @@ perintah lain yang muncul selama bersih-bersih.
 
 - AI tidak boleh menjelajahi disk kamu sendiri (`ls`, `find`, `du`, `Get-ChildItem`, dan sejenisnya).
 - AI tidak boleh membuka halaman review, daftar di baliknya, maupun pilihan yang kamu simpan.
+- AI tidak boleh membuat atau mengubah file pilihan. Yang sah hanya klik tombol "Save selection"
+  ("Simpan pilihan") darimu sendiri.
 - AI tidak boleh memintamu menempelkan nama file, dan tidak boleh memilihkan file untukmu.
 - AI tidak boleh membaca log penghapusan (yang opsional) maupun folder state milik skrip.
 - AI tidak boleh menghapus apa pun sendiri atau membersihkan kategori yang tidak kamu setujui.
+
+### Siapa yang menyimpan pilihan
+
+Skrip tidak bisa melihat siapa yang mengeklik. Yang dilakukannya sebagai gantinya:
+
+- Setiap review punya kode kedua yang lebih panjang (kode rahasia pilihan). Skrip tidak pernah
+  mencetaknya, jadi AI tidak pernah diberi kode itu. Kode ini hanya ada di dalam halaman review dan
+  daftar di baliknya, dan halaman itulah yang menuliskannya ke file yang disimpan tombol "Save
+  selection". File pilihan tanpa kode rahasia yang benar ditolak dan tidak ada yang dipindahkan.
+- Daftar di balik halaman diberi checksum. Kalau daftar itu diubah setelah review dibuat, tidak ada
+  yang dipindahkan. Setiap file juga diperiksa ulang terhadap aturan yang membuatnya masuk daftar.
+
+Yang **tidak** dijamin: asisten berjalan atas nama akunmu, jadi secara teknis ia mampu membaca
+halaman atau daftar itu, mengambil kode rahasianya, lalu menulis file pilihan sendiri. Skill ini
+melarang persis hal itu, sehingga melakukannya adalah pelanggaran aturan yang terang-terangan dan
+bukan sesuatu yang bisa terjadi tanpa sengaja. Tetap saja, ini aturan, bukan gembok. Pengaman yang
+sebenarnya adalah permintaan izin dari aplikasi AI-mu: selama review, perintah yang perlu kamu
+izinkan hanya `review` dan `review-apply`.
 
 ### File yang memang berisi nama file kamu
 
 Supaya jelas: selama sebuah review masih terbuka, ada dua file di disk kamu yang memuat nama dan
 lokasi file-file yang ditampilkan, yaitu halamannya sendiri (`review.html`) dan daftar di baliknya.
-Keduanya disimpan di folder state milik skrip, hanya bisa dibaca oleh akun penggunamu sendiri, dan
-dihapus begitu pilihanmu dijalankan. AI diperintahkan untuk tidak membacanya, tetapi **secara teknis
-tidak dicegah**, karena asisten berjalan atas nama kamu. Kalau kamu memulai review lalu tidak
-menyelesaikannya, dua file itu tetap ada sampai tertimpa review berikutnya atau sampai folder
-state-nya kamu hapus (lihat [Cara menghapus skill](#cara-menghapus-skill)).
+Keduanya disimpan di folder state milik skrip dan hanya bisa dibaca oleh akun penggunamu sendiri.
+Keduanya dihapus begitu pilihanmu dijalankan, saat tertimpa review baru, dan, kalau review-nya tidak
+kamu selesaikan, saat perintah disk-cleanup apa pun dijalankan setelah review itu berumur lebih dari
+satu jam. Kalau skill ini tidak pernah dijalankan lagi, dua file itu tetap ada sampai folder
+state-nya kamu hapus (lihat [Cara menghapus skill](#cara-menghapus-skill)). AI diperintahkan untuk
+tidak membacanya, tetapi **secara teknis tidak dicegah**, karena asisten berjalan atas nama kamu.
 
 Log penghapusan yang opsional juga begitu: kalau kamu minta catatan tentang apa saja yang
 dibersihkan, skrip menulis file log di komputermu sendiri (`--log`, bawaannya mati). File itu berisi
@@ -322,9 +348,8 @@ yang terlihat tetap tinggal di dalam skrip (dan, untuk review, di halaman yang h
 
 **Aman dibersihkan** (akan dibuat ulang sendiri oleh aplikasinya):
 
-- File sementara aplikasi, termasuk aplikasi chat dan media seperti Slack, Discord, Microsoft Teams,
-  Spotify, Zoom, WhatsApp, dan Telegram. Hanya file sementaranya: pesan, pengaturan, dan unduhan
-  tidak disentuh.
+- File sementara aplikasi, termasuk Slack, Discord, Microsoft Teams (classic), dan VS Code. Hanya
+  file sementaranya: pesan, pengaturan, dan unduhan tidak disentuh.
 - File sementara browser: Chrome, Edge, Firefox, Brave, Opera, Arc, dan Safari. Hanya cache-nya,
   jadi kamu tidak akan ter-logout dari mana pun.
 - File sementara dan log lama yang umurnya lebih dari 7 hari.
@@ -569,11 +594,11 @@ selamanya.
 Tiap kategori juga punya `rebuild_cost` (1 tidak terasa, 2 diunduh atau dibangun ulang saat dipakai
 lagi, 3 unduh atau bangun ulangnya lama), yang menentukan urutan usulan dari `scan --target-gb`.
 
-`app-caches` mencakup folder cache sistem ditambah tabel tetap berisi aplikasi yang dikenal (Slack,
-Discord, Microsoft Teams, Spotify, Zoom, WhatsApp, Telegram, VS Code; daftar persisnya sedikit berbeda
-antara macOS dan Windows), dan untuk aplikasi-aplikasi itu
-hanya folder bernama `Cache`, `Code Cache`, `GPUCache`, atau `CachedData` (Spotify: `PersistentCache`).
-Aplikasi yang sedang berjalan dilewati. Di Windows, `store-app-caches` hanya mencakup folder
+`app-caches` mencakup folder cache sistem ditambah tabel tetap berisi empat aplikasi yang dikenal
+(Slack, Discord, Microsoft Teams classic, VS Code), dan untuk aplikasi-aplikasi itu hanya folder
+bernama `Cache`, `Code Cache`, `GPUCache`, atau `CachedData`. Aplikasi yang menyimpan unduhan di
+folder bernama cache (misalnya musik offline Spotify) sengaja tidak dimasukkan ke tabel. Aplikasi
+yang sedang berjalan dilewati. Di Windows, `store-app-caches` hanya mencakup folder
 `TempState` dan `INetCache` milik tiap aplikasi Store; `LocalCache` tidak disentuh. `ios-updates` tidak
 pernah menyentuh cadangan perangkat.
 
@@ -613,11 +638,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\cleanup.ps1 review-a
 | `scan` | `--deep` ikut mencari `node_modules` yang menganggur (lambat). `--target-gb N` (1 sampai 10000) menambahkan `suggestion`: kategori aman, dari yang paling murah dibangun ulang, yang cukup untuk mencapai N GB. `--min-age-days N` batas umur file sementara dan log, bawaan 7. `--projects-dir PATH` lokasi yang ditelusuri deep scan, bawaannya folder home. |
 | `clean` | `--token ID` dari hasil scan (wajib). `--categories id1,id2` (wajib). `--empty-trash` diperlukan untuk `trash`. `--min-idle-days N` untuk `node-modules-stale`, bawaan sekaligus minimum 30. `--log` menulis daftar path yang dihapus ke file lokal. |
 | `review` | `--min-size-mb N` ukuran terkecil yang dianggap file besar, bawaan 100, minimum 10. `--downloads-age-days N` umur item di Downloads, bawaan 90, minimum 7. Menulis halaman review lalu membukanya; yang dicetak hanya jumlah dan token review. |
-| `review-apply` | `--token ID` dari hasil review (wajib). Membaca `disk-cleanup-selection.json` dari folder Downloads lalu memindahkan file yang dipilih ke Tempat Sampah / Recycle Bin. |
+| `review-apply` | `--token ID` dari hasil review (wajib). Membaca `disk-cleanup-selection.json` dari folder Downloads, hanya menerimanya kalau memuat kode rahasia yang ditulis halaman review, lalu memindahkan file yang dipilih ke Tempat Sampah / Recycle Bin. |
 | `--help`, `--version` | |
 
 Token scan berlaku 15 menit dan untuk satu kali `clean`. Token review terpisah, berlaku 60 menit dan
-untuk satu kali `review-apply`. Review menampilkan paling banyak 500 item, dari yang terbesar.
+untuk satu kali `review-apply`. Review menampilkan paling banyak 500 item, dari yang terbesar. Setiap
+perintah, termasuk `--help` dan `--version`, lebih dulu menghapus halaman dan daftar milik review
+yang umurnya sudah lebih dari 60 menit.
 
 ## Opsional: Full Disk Access di macOS
 

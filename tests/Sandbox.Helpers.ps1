@@ -7,6 +7,9 @@ $script:SANDBOX_ENV_NAMES = @(
 )
 $script:PATH_HINT_FIELDS = @('log_location_hint', 'report_location_hint', 'selection_file_hint')
 $script:REVIEW_TEST_SIZE_MB = '10'
+$script:POWERSHELL_OWN_DIR = 'Microsoft\Windows\PowerShell'
+$script:FOREIGN_SELECTION_SECRET = '0123456789abcdef0123456789abcdef'
+$script:MANIFEST_DIGEST_LINE_COUNT = 4
 $script:BYTES_PER_TEST_MEGABYTE = 1048576
 $script:SavedEnvironment = @{}
 $script:SandboxJunctions = New-Object -TypeName 'System.Collections.Generic.List[string]'
@@ -93,6 +96,18 @@ function Get-SandboxFileList {
     param([string]$Root)
     $files = [System.IO.Directory]::GetFiles($Root, '*', [System.IO.SearchOption]::AllDirectories)
     return @($files | Sort-Object)
+}
+
+# The files of the sandboxed user, for before and after comparisons around a child
+# powershell.exe. Windows PowerShell keeps a start-up cache of its own below
+# LOCALAPPDATA (Microsoft\Windows\PowerShell\StartupProfileData-*); only that folder
+# is left out, every other file of the profile is still compared.
+function Get-SandboxUserFileList {
+    param($Sandbox)
+    $own = [System.IO.Path]::Combine($Sandbox.Local, $script:POWERSHELL_OWN_DIR).TrimEnd('\') + '\'
+    return @(Get-SandboxFileList -Root $Sandbox.Home | Where-Object {
+            -not $_.StartsWith($own, [System.StringComparison]::OrdinalIgnoreCase)
+        })
 }
 
 function Invoke-CleanupJson {
@@ -338,10 +353,27 @@ function Invoke-ReviewForToken {
     return [string]$run.Data.token
 }
 
-# Writes what the Save selection button of the report downloads.
+# The selection secret of the review on disk. The tests read it from the manifest,
+# the way the report page reads it from its own markup; it is never on stdout.
+function Get-SandboxSecret {
+    param([string]$Manifest)
+    $found = [regex]::Match([System.IO.File]::ReadAllText($Manifest), '(?m)^secret ([0-9a-f]{32})$')
+    if (-not $found.Success) { throw 'the manifest carries no selection secret' }
+    return [string]$found.Groups[1].Value
+}
+
+# Writes what the Save selection button of the report downloads. Without -Secret the
+# secret of the review on disk is used; without a review, one that matches nothing.
 function Add-SandboxSelection {
-    param($Sandbox, [string]$Token, [int[]]$Ids = @(), [string]$Name = 'disk-cleanup-selection.json')
-    $content = '{"token":"' + $Token + '","ids":[' + ($Ids -join ',') + ']}'
+    param(
+        $Sandbox, [string]$Token, [int[]]$Ids = @(), [string]$Name = 'disk-cleanup-selection.json',
+        [string]$Secret = ''
+    )
+    if (($Secret.Length -eq 0) -and [System.IO.File]::Exists($Sandbox.Manifest)) {
+        $Secret = Get-SandboxSecret -Manifest $Sandbox.Manifest
+    }
+    if ($Secret.Length -eq 0) { $Secret = $script:FOREIGN_SELECTION_SECRET }
+    $content = '{"token":"' + $Token + '","secret":"' + $Secret + '","ids":[' + ($Ids -join ',') + ']}'
     $path = Join-Path -Path $Sandbox.Downloads -ChildPath $Name
     [void][System.IO.Directory]::CreateDirectory($Sandbox.Downloads)
     [System.IO.File]::WriteAllText($path, $content, (New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false))
@@ -355,8 +387,47 @@ function Set-SandboxManifestEpoch {
     [System.IO.File]::WriteAllText($Manifest, $changed)
 }
 
+# SHA-256 of the manifest lines below the sha256 line, computed here on its own so
+# the tests do not depend on the code they check.
+function Get-SandboxManifestDigest {
+    param([string]$Manifest)
+    $feed = [string][char]10
+    $lines = @([System.IO.File]::ReadAllText($Manifest).Split([char]10) | Where-Object { $_.Length -gt 0 })
+    $body = (@($lines | Select-Object -Skip $script:MANIFEST_DIGEST_LINE_COUNT) -join $feed) + $feed
+    $bytes = [byte[]](New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false).GetBytes($body)
+    $hasher = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hash = [byte[]]$hasher.ComputeHash($bytes)
+    } finally {
+        $hasher.Dispose()
+    }
+    return ([System.BitConverter]::ToString($hash).Replace('-', '').ToLowerInvariant())
+}
+
+# Makes an edited manifest consistent again, the way someone who can read the secret
+# could. What must still stop such a manifest is the review guard and the group rule.
+function Update-SandboxManifestDigest {
+    param([string]$Manifest)
+    $digest = Get-SandboxManifestDigest -Manifest $Manifest
+    $text = [System.IO.File]::ReadAllText($Manifest)
+    $changed = [regex]::Replace($text, '(?m)^sha256 [0-9a-f]{64}$', ('sha256 ' + $digest))
+    [System.IO.File]::WriteAllText($Manifest, $changed)
+}
+
+# Appends a well-formed line for an existing file, with that file's real length and
+# modification time, and a matching digest: a forged entry that looks genuine.
+function Add-SandboxManifestItem {
+    param([string]$Manifest, [int]$Id, [string]$Group, [string]$Path)
+    $file = New-Object -TypeName System.IO.FileInfo -ArgumentList $Path
+    $fields = @([string]$Id, [string]$file.Length, [string]$file.Length, [string]$file.LastWriteTimeUtc.Ticks, $Group, $Path)
+    $text = [System.IO.File]::ReadAllText($Manifest)
+    [System.IO.File]::WriteAllText($Manifest, ($text + ($fields -join [string][char]9) + [string][char]10))
+    Update-SandboxManifestDigest -Manifest $Manifest
+}
+
 # Points one manifest entry at another existing file, copying that file's real
-# length and modification time, so that only the review guard can refuse it.
+# length and modification time and renewing the digest, so that only the review
+# guard and the group rule can refuse it.
 function Set-SandboxManifestPath {
     param([string]$Manifest, [int]$Id, [string]$Path)
     $tab = [string][char]9
@@ -372,6 +443,7 @@ function Set-SandboxManifestPath {
             }
         })
     [System.IO.File]::WriteAllText($Manifest, ($changed -join [string][char]10))
+    Update-SandboxManifestDigest -Manifest $Manifest
 }
 
 function Get-SandboxManifestPathList {

@@ -56,8 +56,8 @@ tbody tr:nth-child(even){background:var(--stripe)}
 tbody tr:hover{box-shadow:inset 4px 0 0 var(--mark)}
 tbody tr.on{box-shadow:inset 4px 0 0 var(--mark)}
 tbody tr.on .name{font-weight:700}
-.name,.folder{overflow-wrap:anywhere}
-.name label{cursor:pointer;display:block}
+.name,.folder{overflow-wrap:anywhere;unicode-bidi:isolate}
+.name label{cursor:pointer}
 .folder{color:var(--soft);font-size:14px}
 .num{text-align:right;white-space:nowrap}
 td.num{font-weight:600}
@@ -142,7 +142,7 @@ $script:REPORT_TAIL = @'
       caption: 'Files you may want to move to the Recycle Bin',
       hPick: 'Pick', hName: 'Name', hFolder: 'Folder', hSize: 'Size', hDate: 'Last changed', hGroup: 'Group',
       empty: 'No large files or old downloads were found. There is nothing to choose.',
-      summary: 'Selected: {n} items, {s}', save: 'Save selection',
+      summary: 'Selected: {n} items, {s}', unseen: ' ({n} of them hidden by the filter)', save: 'Save selection',
       saved: 'Saved to your Downloads folder as disk-cleanup-selection.json. Now tell the assistant to continue.'
     },
     id: {
@@ -157,7 +157,7 @@ $script:REPORT_TAIL = @'
       caption: 'File yang mungkin ingin Anda pindahkan ke Recycle Bin',
       hPick: 'Pilih', hName: 'Nama', hFolder: 'Folder', hSize: 'Ukuran', hDate: 'Terakhir diubah', hGroup: 'Kelompok',
       empty: 'Tidak ditemukan file besar atau unduhan lama. Tidak ada yang perlu dipilih.',
-      summary: 'Dipilih: {n} item, {s}', save: 'Simpan pilihan',
+      summary: 'Dipilih: {n} item, {s}', unseen: ' ({n} di antaranya tersembunyi oleh filter)', save: 'Simpan pilihan',
       saved: 'Tersimpan di folder Downloads sebagai disk-cleanup-selection.json. Sekarang minta asisten untuk melanjutkan.'
     }
   };
@@ -169,7 +169,9 @@ $script:REPORT_TAIL = @'
     var word = words[marked[i].getAttribute('data-t')];
     if (word) { marked[i].textContent = word; }
   }
-  var token = document.body.getAttribute('data-token');
+  var token = String(document.body.getAttribute('data-token'));
+  var secret = String(document.body.getAttribute('data-secret'));
+  var valid = /^[0-9a-f]{8}$/.test(token) && /^[0-9a-f]{32}$/.test(secret);
   var body = document.getElementById('rows');
   var rows = Array.prototype.slice.call(body.getElementsByTagName('tr'));
   var filter = document.getElementById('filter');
@@ -192,10 +194,17 @@ $script:REPORT_TAIL = @'
   function refresh() {
     var chosen = picked();
     var total = 0;
+    var unseen = 0;
     rows.forEach(function (row) { row.className = box(row).checked ? 'on' : ''; });
-    chosen.forEach(function (row) { total += size(row); });
-    summary.textContent = words.summary.replace('{n}', String(chosen.length)).replace('{s}', human(total));
+    chosen.forEach(function (row) {
+      total += size(row);
+      if (row.hidden) { unseen += 1; }
+    });
+    var line = words.summary.replace('{n}', String(chosen.length)).replace('{s}', human(total));
+    if (unseen > 0) { line += words.unseen.replace('{n}', String(unseen)); }
+    summary.textContent = line;
     save.disabled = chosen.length === 0;
+    if (!valid) { save.disabled = true; }
     saved.hidden = true;
   }
   if (rows.length === 0) {
@@ -207,6 +216,7 @@ $script:REPORT_TAIL = @'
     rows.forEach(function (row) {
       row.hidden = filter.value !== '' && row.getAttribute('data-group') !== filter.value;
     });
+    refresh();
   });
   order.addEventListener('click', function () {
     largestFirst = !largestFirst;
@@ -216,9 +226,9 @@ $script:REPORT_TAIL = @'
   });
   save.addEventListener('click', function () {
     var ids = picked().map(function (row) { return parseInt(row.getAttribute('data-id'), 10); });
-    if (ids.length === 0) { return; }
+    if (ids.length === 0 || !valid) { return; }
     ids.sort(function (a, b) { return a - b; });
-    var content = '{"token":"' + token + '","ids":[' + ids.join(',') + ']}';
+    var content = '{"token":"' + token + '","secret":"' + secret + '","ids":[' + ids.join(',') + ']}';
     var link = document.createElement('a');
     link.href = URL.createObjectURL(new Blob([content], { type: 'application/json' }));
     link.download = 'disk-cleanup-selection.json';
@@ -284,7 +294,9 @@ function Format-ReviewDate {
 
 # One table row per item. Numbers are written from typed values, the group comes
 # from a fixed table, and the two strings that come from the disk (name and folder)
-# are escaped and placed in element text only.
+# are escaped and placed in element text only. Their cells set their own text
+# direction, so a right-to-left name cannot reorder the cells next to it. Only the
+# checkbox and the label around the name tick a row.
 function ConvertTo-ReviewRow {
     param($Item, [string]$HomeRoot)
     $group = $script:REPORT_GROUP_TEXT[[string]$Item.Group]
@@ -296,8 +308,8 @@ function ConvertTo-ReviewRow {
     $cells = @(
         ('<tr data-id="' + $id + '" data-size="' + $bytes + '" data-group="' + (ConvertTo-HtmlText -Text ([string]$Item.Group)) + '">'),
         ('<td><input type="checkbox" id="pick' + $id + '"></td>'),
-        ('<td class="name"><label for="pick' + $id + '">' + $name + '</label></td>'),
-        ('<td class="folder">' + $folder + '</td>'),
+        ('<td class="name" dir="auto"><label for="pick' + $id + '">' + $name + '</label></td>'),
+        ('<td class="folder" dir="auto">' + $folder + '</td>'),
         ('<td class="num">' + (ConvertTo-HtmlText -Text (Format-ByteSize -Bytes ([long]$Item.Size))) + '</td>'),
         ('<td class="when">' + (ConvertTo-HtmlText -Text (Format-ReviewDate -Ticks ([long]$Item.MtimeTicks))) + '</td>'),
         ('<td class="group" data-t="' + $group['Key'] + '">' + $group['Label'] + '</td></tr>')
@@ -305,13 +317,16 @@ function ConvertTo-ReviewRow {
     return ($cells -join '')
 }
 
+# The token and the selection secret are written as attributes of the body; both
+# are checked to be plain hex first, and the page checks them again when it reads them.
 function Get-ReviewReportHtml {
-    param([string]$Token, [object[]]$Items = @(), [string]$HomeRoot)
+    param([string]$Token, [string]$Secret, [object[]]$Items = @(), [string]$HomeRoot)
     if ($Token -cnotmatch $script:TOKEN_PATTERN) { Invoke-CleanupFailure -Code 'INTERNAL' }
+    if ($Secret -cnotmatch $script:REVIEW_SECRET_PATTERN) { Invoke-CleanupFailure -Code 'INTERNAL' }
     $lineFeed = [string][char]10
     $builder = New-Object -TypeName System.Text.StringBuilder
     [void]$builder.Append($script:REPORT_HEAD).Append($lineFeed)
-    [void]$builder.Append('<body data-token="' + $Token + '">').Append($lineFeed)
+    [void]$builder.Append('<body data-token="' + $Token + '" data-secret="' + $Secret + '">').Append($lineFeed)
     [void]$builder.Append($script:REPORT_INTRO).Append($lineFeed)
     foreach ($item in $Items) {
         [void]$builder.Append((ConvertTo-ReviewRow -Item $item -HomeRoot $HomeRoot)).Append($lineFeed)

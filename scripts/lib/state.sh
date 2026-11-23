@@ -3,6 +3,7 @@
 
 readonly STATE_FORMAT=1
 readonly TOKEN_RANDOM_BYTES=4
+readonly SECRET_RANDOM_BYTES=16
 readonly PRIVATE_DIR_MODE=700
 readonly PRIVATE_FILE_MODE=600
 
@@ -13,11 +14,20 @@ ST_DEEP=""
 ST_PROJECTS_DIR=""
 ST_OK=""
 
-is_token() {
+# is_hex_of_length VALUE DIGITS: lower-case hex of exactly that length.
+is_hex_of_length() {
   case "${1:-}" in
     *[!0-9a-f]* | "") return 1 ;;
   esac
-  [ "${#1}" -eq $((TOKEN_RANDOM_BYTES * 2)) ]
+  [ "${#1}" -eq "$2" ]
+}
+
+is_token() {
+  is_hex_of_length "${1:-}" $((TOKEN_RANDOM_BYTES * 2))
+}
+
+is_secret() {
+  is_hex_of_length "${1:-}" $((SECRET_RANDOM_BYTES * 2))
 }
 
 ensure_private_dir() {
@@ -27,11 +37,25 @@ ensure_private_dir() {
   chmod "$PRIVATE_DIR_MODE" "$1" 2> /dev/null
 }
 
+# random_hex BYTES: that many random bytes as lower-case hex.
+random_hex() {
+  od -An -N"$1" -tx1 /dev/urandom 2> /dev/null | tr -d ' \n'
+}
+
 new_token() {
   local token
-  token=$(od -An -N"$TOKEN_RANDOM_BYTES" -tx1 /dev/urandom 2> /dev/null | tr -d ' \n')
+  token=$(random_hex "$TOKEN_RANDOM_BYTES")
   is_token "$token" || return 1
   printf '%s' "$token"
+}
+
+# The selection secret of a review. It goes into the manifest and the report
+# and is never printed: only the report page can put it into a selection.
+new_secret() {
+  local secret
+  secret=$(random_hex "$SECRET_RANDOM_BYTES")
+  is_secret "$secret" || return 1
+  printf '%s' "$secret"
 }
 
 # state_write TOKEN OK_CATEGORIES

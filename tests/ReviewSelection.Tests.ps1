@@ -39,6 +39,7 @@ Describe 'review-apply selection file and token' {
         }
         $script:token = Invoke-ReviewForToken
         $script:otherToken = Get-OtherToken -Token $script:token
+        $script:secret = Get-SandboxSecret -Manifest $script:sandbox.Manifest
     }
 
     AfterEach {
@@ -86,6 +87,8 @@ Describe 'review-apply selection file and token' {
             @{ Name = 'disk-cleanup-selection (1234).json' }
             @{ Name = 'disk-cleanup-selections.json' }
             @{ Name = 'Disk-Cleanup-Selection.JSON' }
+            @{ Name = 'disk-cleanup-selection 1234.json' }
+            @{ Name = 'disk-cleanup-selection x.json' }
         ) {
             $null = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:token -Ids @(1) -Name $Name
 
@@ -99,6 +102,7 @@ Describe 'review-apply selection file and token' {
             @{ Name = 'disk-cleanup-selection (1).json' }
             @{ Name = 'disk-cleanup-selection (27).json' }
             @{ Name = 'disk-cleanup-selection-3.json' }
+            @{ Name = 'disk-cleanup-selection 2.json' }
         ) {
             $selection = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:token -Ids @(1) -Name $Name
 
@@ -168,6 +172,75 @@ Describe 'review-apply selection file and token' {
     }
 
     Context 'rejecting a selection' {
+        It 'rejects a forged selection that has the token but no secret, and leaves the file alone' {
+            $forged = Add-RawSelection -Sandbox $script:sandbox -Content ('{"token":"' + $script:token + '","ids":[1,2,3,4,5]}')
+            $before = @(Get-SandboxFileList -Root $script:sandbox.Home) -join '|'
+
+            $run = Invoke-Apply -Token $script:token
+
+            $run.ExitCode | Should -Be 1
+            $run.Data.error.code | Should -Be 'SELECTION_INVALID'
+            Should -Invoke Send-FileToRecycleBin -Times 0 -Exactly
+            (@(Get-SandboxFileList -Root $script:sandbox.Home) -join '|') | Should -Be $before
+            Test-Path -LiteralPath $forged | Should -BeTrue
+            Assert-PrivateOutput -Json $run.Json -Sandbox $script:sandbox
+        }
+
+        It 'rejects a selection whose secret is <Name>, and leaves the file alone' -ForEach @(
+            @{ Name = 'another secret'; Kind = 'other' }
+            @{ Name = 'in upper case'; Kind = 'upper' }
+            @{ Name = 'the right secret cut short'; Kind = 'short' }
+            @{ Name = 'the right secret with one more character'; Kind = 'long' }
+            @{ Name = 'empty'; Kind = 'empty' }
+            @{ Name = 'the token'; Kind = 'token' }
+        ) {
+            $wrong = '0123456789abcdef0123456789abcdef'
+            if ($wrong -ceq $script:secret) { $wrong = 'fedcba9876543210fedcba9876543210' }
+            if ($Kind -eq 'upper') { $wrong = 'A' + $script:secret.Substring(1).ToUpperInvariant() }
+            if ($Kind -eq 'short') { $wrong = $script:secret.Substring(0, 31) }
+            if ($Kind -eq 'long') { $wrong = $script:secret + '0' }
+            if ($Kind -eq 'empty') { $wrong = '' }
+            if ($Kind -eq 'token') { $wrong = $script:token }
+            $forged = Add-RawSelection -Sandbox $script:sandbox -Content ('{"token":"' + $script:token + '","secret":"' + $wrong + '","ids":[1,4]}')
+
+            $run = Invoke-Apply -Token $script:token
+
+            $wrong | Should -Not -BeExactly $script:secret
+            $run.ExitCode | Should -Be 1
+            $run.Data.error.code | Should -Be 'SELECTION_INVALID'
+            Should -Invoke Send-FileToRecycleBin -Times 0 -Exactly
+            Test-Path -LiteralPath $forged | Should -BeTrue
+            Test-Path -LiteralPath $script:files.Holiday | Should -BeTrue
+            Test-Path -LiteralPath $script:sandbox.Manifest | Should -BeTrue
+        }
+
+        It 'keeps the token usable after a forged selection, for the selection the page saved' {
+            $forged = Add-RawSelection -Sandbox $script:sandbox -Content ('{"token":"' + $script:token + '","ids":[1]}')
+            $refused = Invoke-Apply -Token $script:token
+            $genuine = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:token -Ids @(5) -Name 'disk-cleanup-selection (1).json'
+
+            $run = Invoke-Apply -Token $script:token
+
+            $refused.Data.error.code | Should -Be 'SELECTION_INVALID'
+            $run.ExitCode | Should -Be 0
+            $run.Data.trashed_count | Should -Be 1
+            Test-Path -LiteralPath $script:files.Holiday | Should -BeTrue
+            Test-Path -LiteralPath $script:files.OldNotes | Should -BeFalse
+            Test-Path -LiteralPath $genuine | Should -BeFalse
+            Test-Path -LiteralPath $forged | Should -BeTrue
+        }
+
+        It 'never prints the secret, whatever review-apply answers' {
+            $missing = Invoke-Apply -Token $script:token
+            $null = Add-RawSelection -Sandbox $script:sandbox -Content ('{"token":"' + $script:token + '","ids":[1]}')
+            $refused = Invoke-Apply -Token $script:token
+            $null = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:token -Ids @(5)
+            $applied = Invoke-Apply -Token $script:token
+
+            $applied.ExitCode | Should -Be 0
+            foreach ($run in @($missing, $refused, $applied)) { $run.Json | Should -Not -Match $script:secret }
+        }
+
         It 'rejects a selection that carries another token and keeps this token usable' {
             $foreign = Add-SandboxSelection -Sandbox $script:sandbox -Token $script:otherToken -Ids @(1, 2, 3)
 
@@ -183,7 +256,7 @@ Describe 'review-apply selection file and token' {
 
         It 'rejects a selection larger than 1 MB even when it is otherwise well formed' {
             $padding = New-Object -TypeName string -ArgumentList ([char]32), 1048577
-            $big = Add-RawSelection -Sandbox $script:sandbox -Content ('{"token":"' + $script:token + '","ids":[1]}' + $padding)
+            $big = Add-RawSelection -Sandbox $script:sandbox -Content ('{"token":"' + $script:token + '","secret":"' + $script:secret + '","ids":[1]}' + $padding)
 
             $run = Invoke-Apply -Token $script:token
 
@@ -193,7 +266,7 @@ Describe 'review-apply selection file and token' {
         }
 
         It 'accepts a selection of exactly 1 MB' {
-            $prefix = '{"token":"' + $script:token + '","ids":[5]}'
+            $prefix = '{"token":"' + $script:token + '","secret":"' + $script:secret + '","ids":[5]}'
             $padding = New-Object -TypeName string -ArgumentList ([char]32), (1048576 - $prefix.Length)
             $null = Add-RawSelection -Sandbox $script:sandbox -Content ($prefix + $padding)
 
@@ -205,27 +278,32 @@ Describe 'review-apply selection file and token' {
 
         It 'rejects malformed content: <Name>' -ForEach @(
             @{ Name = 'empty file'; Template = '' }
-            @{ Name = 'trailing comma'; Template = '{"token":"TOKEN","ids":[1,]}' }
-            @{ Name = 'keys in another order'; Template = '{"ids":[1],"token":"TOKEN"}' }
-            @{ Name = 'an extra key'; Template = '{"token":"TOKEN","ids":[1],"all":true}' }
-            @{ Name = 'text after the document'; Template = '{"token":"TOKEN","ids":[1]} $(calc)' }
-            @{ Name = 'text before the document'; Template = 'x{"token":"TOKEN","ids":[1]}' }
-            @{ Name = 'a second document'; Template = '{"token":"TOKEN","ids":[1]}{"token":"TOKEN","ids":[2]}' }
-            @{ Name = 'ids as strings'; Template = '{"token":"TOKEN","ids":["1"]}' }
-            @{ Name = 'a negative id'; Template = '{"token":"TOKEN","ids":[-1]}' }
-            @{ Name = 'a fractional id'; Template = '{"token":"TOKEN","ids":[1.5]}' }
-            @{ Name = 'an exponent'; Template = '{"token":"TOKEN","ids":[1e3]}' }
-            @{ Name = 'an id of seven digits'; Template = '{"token":"TOKEN","ids":[1234567]}' }
-            @{ Name = 'a path instead of an id'; Template = '{"token":"TOKEN","ids":["C:\\Users"]}' }
-            @{ Name = 'ids not in an array'; Template = '{"token":"TOKEN","ids":1}' }
-            @{ Name = 'single quotes'; Template = '{''token'':''TOKEN'',''ids'':[1]}' }
-            @{ Name = 'an upper-case token'; Template = '{"token":"ABCDEF12","ids":[1]}' }
-            @{ Name = 'a token with a space'; Template = '{"token":"TOKEN ","ids":[1]}' }
+            @{ Name = 'trailing comma'; Template = '{"token":"TOKEN","secret":"SECRET","ids":[1,]}' }
+            @{ Name = 'keys in another order'; Template = '{"ids":[1],"secret":"SECRET","token":"TOKEN"}' }
+            @{ Name = 'an extra key'; Template = '{"token":"TOKEN","secret":"SECRET","ids":[1],"all":true}' }
+            @{ Name = 'text after the document'; Template = '{"token":"TOKEN","secret":"SECRET","ids":[1]} $(calc)' }
+            @{ Name = 'text before the document'; Template = 'x{"token":"TOKEN","secret":"SECRET","ids":[1]}' }
+            @{ Name = 'a second document'; Template = '{"token":"TOKEN","secret":"SECRET","ids":[1]}{"token":"TOKEN","secret":"SECRET","ids":[2]}' }
+            @{ Name = 'ids as strings'; Template = '{"token":"TOKEN","secret":"SECRET","ids":["1"]}' }
+            @{ Name = 'a negative id'; Template = '{"token":"TOKEN","secret":"SECRET","ids":[-1]}' }
+            @{ Name = 'a fractional id'; Template = '{"token":"TOKEN","secret":"SECRET","ids":[1.5]}' }
+            @{ Name = 'an exponent'; Template = '{"token":"TOKEN","secret":"SECRET","ids":[1e3]}' }
+            @{ Name = 'an id of seven digits'; Template = '{"token":"TOKEN","secret":"SECRET","ids":[1234567]}' }
+            @{ Name = 'a path instead of an id'; Template = '{"token":"TOKEN","secret":"SECRET","ids":["C:\\Users"]}' }
+            @{ Name = 'ids not in an array'; Template = '{"token":"TOKEN","secret":"SECRET","ids":1}' }
+            @{ Name = 'single quotes'; Template = '{''token'':''TOKEN'',''secret'':''SECRET'',''ids'':[1]}' }
+            @{ Name = 'an upper-case token'; Template = '{"token":"ABCDEF12","secret":"SECRET","ids":[1]}' }
+            @{ Name = 'a token with a space'; Template = '{"token":"TOKEN ","secret":"SECRET","ids":[1]}' }
             @{ Name = 'a bare array'; Template = '[1,2,3]' }
-            @{ Name = 'PowerShell code'; Template = '$(throw "zqevaluated"); {"token":"TOKEN","ids":[1]}' }
-            @{ Name = 'an escaped key'; Template = '{"\u0074oken":"TOKEN","ids":[1]}' }
+            @{ Name = 'PowerShell code'; Template = '$(throw "zqevaluated"); {"token":"TOKEN","secret":"SECRET","ids":[1]}' }
+            @{ Name = 'the secret before the token'; Template = '{"secret":"SECRET","token":"TOKEN","ids":[1]}' }
+            @{ Name = 'the secret after the ids'; Template = '{"token":"TOKEN","ids":[1],"secret":"SECRET"}' }
+            @{ Name = 'the secret twice'; Template = '{"token":"TOKEN","secret":"SECRET","secret":"SECRET","ids":[1]}' }
+            @{ Name = 'a secret with a space'; Template = '{"token":"TOKEN","secret":"SECRET ","ids":[1]}' }
+            @{ Name = 'a secret that is not a string'; Template = '{"token":"TOKEN","secret":1,"ids":[1]}' }
+            @{ Name = 'an escaped key'; Template = '{"\u0074oken":"TOKEN","secret":"SECRET","ids":[1]}' }
         ) {
-            $bad = Add-RawSelection -Sandbox $script:sandbox -Content $Template.Replace('TOKEN', $script:token)
+            $bad = Add-RawSelection -Sandbox $script:sandbox -Content $Template.Replace('TOKEN', $script:token).Replace('SECRET', $script:secret)
 
             $run = Invoke-Apply -Token $script:token
 
@@ -240,6 +318,7 @@ Describe 'review-apply selection file and token' {
         It 'tolerates whitespace and a byte order mark' {
             $lineBreak = [string][char]13 + [char]10
             $content = [string][char]65279 + ' {' + $lineBreak + '  "token" : "' + $script:token + '" ,' + $lineBreak +
+                '  "secret" : "' + $script:secret + '" ,' + $lineBreak +
                 '  "ids" : [ 5 ,' + [char]9 + '4 ]' + $lineBreak + '}' + $lineBreak
             $null = Add-RawSelection -Sandbox $script:sandbox -Content $content
 
@@ -332,7 +411,18 @@ Describe 'review-apply selection file and token' {
             $run.Data.error.code | Should -Be 'TOKEN_EXPIRED'
             Should -Invoke Send-FileToRecycleBin -Times 0 -Exactly
             Test-Path -LiteralPath $script:files.Holiday | Should -BeTrue
+            Test-Path -LiteralPath $script:sandbox.Manifest | Should -BeFalse
+            Test-Path -LiteralPath $script:sandbox.Report | Should -BeFalse
             Assert-PrivateOutput -Json $run.Json -Sandbox $script:sandbox
+        }
+
+        It 'reports TOKEN_INVALID, not TOKEN_EXPIRED, for another token once the review has expired' {
+            Set-SandboxManifestEpoch -Manifest $script:sandbox.Manifest -Replacement ([string]((Get-EpochNow) - 3600))
+
+            $run = Invoke-Apply -Token $script:otherToken
+
+            $run.Data.error.code | Should -Be 'TOKEN_INVALID'
+            Test-Path -LiteralPath $script:sandbox.Manifest | Should -BeFalse
         }
 
         It 'still accepts the token after 59 minutes' {
@@ -382,12 +472,19 @@ Describe 'Read-SelectionFile' {
     }
 
     It 'returns the token and the distinct ids in order' {
-        $path = Add-RawSelection -Sandbox $script:sandbox -Content '{"token":"0a1b2c3d","ids":[9,1,5,1,09]}'
+        $path = Add-RawSelection -Sandbox $script:sandbox -Content '{"token":"0a1b2c3d","secret":"00112233445566778899aabbccddeeff","ids":[9,1,5,1,09]}'
 
         $selection = Read-SelectionFile -File (New-Object -TypeName System.IO.FileInfo -ArgumentList $path)
 
         $selection.Token | Should -BeExactly '0a1b2c3d'
+        $selection.Secret | Should -BeExactly '00112233445566778899aabbccddeeff'
         ($selection.Ids -join ',') | Should -Be '9,1,5'
+    }
+
+    It 'returns nothing for a selection without a secret' {
+        $path = Add-RawSelection -Sandbox $script:sandbox -Content '{"token":"0a1b2c3d","ids":[9,1,5]}'
+
+        Read-SelectionFile -File (New-Object -TypeName System.IO.FileInfo -ArgumentList $path) | Should -BeNullOrEmpty
     }
 
     It 'returns nothing for a file that cannot be read' {
@@ -401,6 +498,9 @@ Describe 'Read-SelectionFile' {
         @{ Name = 'disk-cleanup-selection (1).json'; Expected = $true }
         @{ Name = 'disk-cleanup-selection (999).json'; Expected = $true }
         @{ Name = 'disk-cleanup-selection-12.json'; Expected = $true }
+        @{ Name = 'disk-cleanup-selection 7.json'; Expected = $true }
+        @{ Name = 'disk-cleanup-selection 1234.json'; Expected = $false }
+        @{ Name = 'disk-cleanup-selection 7 .json'; Expected = $false }
         @{ Name = 'disk-cleanup-selection (1).json '; Expected = $false }
         @{ Name = 'disk-cleanup-selection  (1).json'; Expected = $false }
         @{ Name = 'disk-cleanup-selection-.json'; Expected = $false }

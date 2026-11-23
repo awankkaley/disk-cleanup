@@ -24,6 +24,8 @@ readonly NEVER_TOUCH=(
 )
 
 HOME_PHYS=""
+ENVIRONMENT_ERROR=""
+ENVIRONMENT_READY=0
 TEMP_ROOT=""
 LOG_FILE=""
 MEASURE_BYTES=0
@@ -96,13 +98,17 @@ temp_root_is_sane() {
   [ -d "$1" ] && [ -O "$1" ]
 }
 
+# Resolves the home, temp and state locations. On failure ENVIRONMENT_ERROR
+# holds the error code and nothing may be touched.
 # shellcheck disable=SC2034 # the state paths are read by state.sh
-init_environment() {
-  [ "$(uname -s 2>/dev/null)" = "Darwin" ] || fail UNSUPPORTED_PLATFORM
-  [ "${EUID:-0}" -ne 0 ] || fail INTERNAL
-  HOME_PHYS=$(physical_dir "${HOME:-}") || fail INTERNAL
-  home_is_sane "$HOME_PHYS" || fail INTERNAL
-  home_is_not_redirected || fail INTERNAL
+load_environment() {
+  ENVIRONMENT_ERROR=UNSUPPORTED_PLATFORM
+  [ "$(uname -s 2>/dev/null)" = "Darwin" ] || return 1
+  ENVIRONMENT_ERROR=INTERNAL
+  [ "${EUID:-0}" -ne 0 ] || return 1
+  HOME_PHYS=$(physical_dir "${HOME:-}") || return 1
+  home_is_sane "$HOME_PHYS" || return 1
+  home_is_not_redirected || return 1
   TEMP_ROOT=$(physical_dir "${TMPDIR:-}") || TEMP_ROOT=""
   if [ -n "$TEMP_ROOT" ] && ! temp_root_is_sane "$TEMP_ROOT"; then
     TEMP_ROOT=""
@@ -111,6 +117,12 @@ init_environment() {
   STATE_DIR="$LIBRARY/Application Support/disk-cleanup"
   STATE_FILE="$STATE_DIR/state"
   LOG_DIR="$STATE_DIR/logs"
+  ENVIRONMENT_ERROR=""
+  ENVIRONMENT_READY=1
+}
+
+init_environment() {
+  [ "$ENVIRONMENT_READY" = 1 ] || load_environment || fail "$ENVIRONMENT_ERROR"
 }
 
 path_is_under() {
@@ -195,16 +207,17 @@ guard_resolve() {
   printf '%s' "${parent_physical%/}/$name"
 }
 
-# guarded_delete MODE PATH [DAYS] is the only code that removes anything.
+# guarded_delete MODE PATH [DAYS] [SECRET] is the only code that removes anything.
 #   contents   everything inside directory PATH (PATH itself stays)
 #   tree       directory PATH and everything inside it; node_modules only
 #   empty-dir  directory PATH itself, only when nothing is inside it
 #   file       the regular file PATH
 #   old-files  regular files inside PATH not modified for more than DAYS days
 #   selection  the saved selection file PATH in Downloads, only while its
-#              content names the review token given as third argument
+#              content names the review token given as third argument and
+#              carries the selection secret given as fourth
 guarded_delete() {
-  local mode=${1:-} path=${2:-} days=${3:-} physical sink leftover
+  local mode=${1:-} path=${2:-} days=${3:-} secret=${4:-} physical sink leftover
   local selector=()
   physical=$(guard_resolve "$mode" "$path") || return "$GUARD_REFUSED"
   case "$mode" in
@@ -213,7 +226,7 @@ guarded_delete() {
     empty-dir) selector=(-maxdepth 0 -type d -empty) ;;
     file) selector=(-maxdepth 0 -type f) ;;
     selection)
-      selection_matches_token "$physical" "$days" || return "$GUARD_REFUSED"
+      selection_matches "$physical" "$days" "$secret" || return "$GUARD_REFUSED"
       selector=(-maxdepth 0 -type f)
       ;;
     old-files)

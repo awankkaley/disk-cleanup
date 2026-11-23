@@ -129,7 +129,7 @@ Describe 'review and review-apply in a child process' {
             Set-ItResult -Skipped -Because 'this needs Windows PowerShell and a folder outside the real user profile'
             return
         }
-        $before = (Get-SandboxFileList -Root $script:sandbox.Home) -join '|'
+        $before = (Get-SandboxUserFileList -Sandbox $script:sandbox) -join '|'
 
         $review = Invoke-CleanupProcess -Arguments @('review', '--min-size-mb', '10')
 
@@ -145,7 +145,10 @@ Describe 'review and review-apply in a child process' {
         Test-Path -LiteralPath $script:sandbox.Report | Should -BeTrue
         Test-Path -LiteralPath $script:sandbox.Manifest | Should -BeTrue
         $own = @($script:sandbox.Report, $script:sandbox.Manifest)
-        (@(Get-SandboxFileList -Root $script:sandbox.Home | Where-Object { $own -notcontains $_ }) -join '|') | Should -Be $before
+        (@(Get-SandboxUserFileList -Sandbox $script:sandbox | Where-Object { $own -notcontains $_ }) -join '|') | Should -Be $before
+        $secret = Get-SandboxSecret -Manifest $script:sandbox.Manifest
+        $secret | Should -MatchExactly '^[0-9a-f]{32}$'
+        $review.Lines[0] | Should -Not -Match $secret
 
         $selection = Add-SandboxSelection -Sandbox $script:sandbox -Token ([string]$reviewData.token) -Ids @(1, 4, 99)
         $apply = Invoke-CleanupProcess -Arguments @('review-apply', '--token', [string]$reviewData.token)
@@ -165,7 +168,7 @@ Describe 'review and review-apply in a child process' {
         Test-Path -LiteralPath $selection | Should -BeFalse
         Test-Path -LiteralPath $script:sandbox.Report | Should -BeFalse
         Test-Path -LiteralPath $script:sandbox.Manifest | Should -BeFalse
-        ((Get-SandboxFileList -Root $script:sandbox.Home) -join '|') | Should -Be $before
+        ((Get-SandboxUserFileList -Sandbox $script:sandbox) -join '|') | Should -Be $before
     }
 
     It 'exits 1 with a JSON error when the review token is reused or no selection was saved' {

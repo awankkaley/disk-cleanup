@@ -50,6 +50,11 @@ Talk to them accordingly (see "How to talk to the user").
 13. Never open, read, print, search or summarise the review page (`review.html`), the review manifest,
     or the selection file (`disk-cleanup-selection.json`), and never ask the user to paste, upload,
     screenshot or read out any of them. They hold the user's file names. Only the script reads them.
+    Never create, edit, copy, rename, move or delete a selection file, the review page or the
+    manifest either, by any tool or command. The user's own click on "Save selection" in the page
+    is the only valid selection: the page puts a secret value into the file that the script never
+    prints and that you must never look for. If the user asks you to pick or to "just save it for
+    them", decline and ask them to tick and save in the page themselves.
 14. Never ask the user to type or paste file or folder names, and never choose, suggest or guess
     which personal files should go. In `review`, the only selection is the one the user ticked and
     saved in the page; you pass nothing but the token.
@@ -222,7 +227,8 @@ first, that reaches the amount.
    may ask whether the app may access Documents, Desktop or Downloads, and they should click "Allow"
    for the folders they want included (a folder they do not allow is simply left out).
 2. Run `review`. It deletes and moves nothing. Keep the `token`: it is valid for 60 minutes, for one
-   `review-apply` only, and is separate from a scan token. Optional, only when the user asks for
+   `review-apply` only, and is separate from a scan token. After 60 minutes the script removes the
+   page and its list by itself the next time any command runs; a new `review` replaces an old one. Optional, only when the user asks for
    other limits: `--min-size-mb N` (default 100, minimum 10) and `--downloads-age-days N`
    (default 90, minimum 7).
 3. Tell the user, in plain words and in their language:
@@ -362,7 +368,7 @@ Error output (non-zero exit): `{"schema_version":1,"error":{"code":"...","messag
 | `UNKNOWN_CATEGORY` | Use only ids returned by the scan. |
 | `TOKEN_MISSING`, `TOKEN_INVALID`, `TOKEN_EXPIRED` | From `clean`: run `scan` again, show the new numbers, and re-confirm before cleaning. From `review-apply`: the review is older than 60 minutes or was already applied; nothing was moved. Offer to run `review` again; the user then ticks and saves again in the new page. |
 | `SELECTION_NOT_FOUND` | No saved selection for this review is in the Downloads folder. The user has not pressed "Save selection" yet, or the browser saved the file somewhere else. Ask them to press it again and keep the file in Downloads, then run `review-apply` again. Nothing was moved. |
-| `SELECTION_INVALID` | A selection file is there but it is not a valid one for this review (for example, saved from an older page). Ask the user to press "Save selection" in the page that is open now, then run `review-apply` again. Nothing was moved. |
+| `SELECTION_INVALID` | A selection file is there but it was not saved by the page of this review (for example, saved from an older page), or the review's own files were changed. Ask the user to press "Save selection" in the page that is open now, then run `review-apply` again. If it fails again, offer a new `review`. Never repair or write the file yourself (rule 13). Nothing was moved. |
 | `CATEGORY_NOT_IN_SCAN` | The category was not `ok` in that scan. Scan again or drop it. |
 | `TRASH_FLAG_REQUIRED` | `trash` needs `--empty-trash`. Add it only with the user's explicit consent. |
 | `DEEP_SCAN_REQUIRED` | `node-modules-stale` needs a token from `scan --deep`. |

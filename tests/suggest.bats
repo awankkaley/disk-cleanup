@@ -26,6 +26,13 @@ suggest() { run_function suggestion_json "$@"; }
   [ "$(json cat ios-updates rebuild_cost)" = "2" ]
   [ "$(json cat xcode-derived-data rebuild_cost)" = "3" ]
   [ "$(json cat node-modules-stale rebuild_cost)" = "3" ]
+  local id
+  for id in browser-chrome browser-safari browser-firefox; do [ "$(json cat "$id" rebuild_cost)" = "1" ]; done
+  for id in yarn-cache pnpm-store pip-cache homebrew-cache cocoapods-cache go-cache docker-dangling \
+    xcode-simulators-unavailable xcode-device-support trash; do
+    [ "$(json cat "$id" rebuild_cost)" = "2" ]
+  done
+  for id in gradle-cache cargo-cache; do [ "$(json cat "$id" rebuild_cost)" = "3" ]; done
 }
 
 @test "without --target-gb there is no suggestion" {

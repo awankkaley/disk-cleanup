@@ -47,28 +47,44 @@ guard() { run_function guarded_delete "$@"; }
   [ -z "$output" ]
 }
 
-@test "guard: the selection exception removes only a selection file with the right token" {
-  printf '{"token":"abcdef12","ids":[1]}' > "$DOWNLOADS/disk-cleanup-selection.json"
-  guard selection "$DOWNLOADS/disk-cleanup-selection.json" 12345678
+SELECTION_SECRET="0123456789abcdef0123456789abcdef"
+SELECTION_BODY='{"token":"abcdef12","secret":"0123456789abcdef0123456789abcdef","ids":[1]}'
+
+@test "guard: the selection exception removes only a selection file with the right token and secret" {
+  printf '%s' "$SELECTION_BODY" > "$DOWNLOADS/disk-cleanup-selection.json"
+  guard selection "$DOWNLOADS/disk-cleanup-selection.json" 12345678 "$SELECTION_SECRET"
   [ "$status" -ne 0 ]
   assert_exists "$DOWNLOADS/disk-cleanup-selection.json"
   guard selection "$DOWNLOADS/disk-cleanup-selection.json"
   [ "$status" -ne 0 ]
   assert_exists "$DOWNLOADS/disk-cleanup-selection.json"
   guard selection "$DOWNLOADS/disk-cleanup-selection.json" abcdef12
+  [ "$status" -ne 0 ]
+  assert_exists "$DOWNLOADS/disk-cleanup-selection.json"
+  guard selection "$DOWNLOADS/disk-cleanup-selection.json" abcdef12 "ffffffffffffffffffffffffffffffff"
+  [ "$status" -ne 0 ]
+  assert_exists "$DOWNLOADS/disk-cleanup-selection.json"
+  guard selection "$DOWNLOADS/disk-cleanup-selection.json" abcdef12 "$SELECTION_SECRET"
   [ "$status" -eq 0 ]
   assert_missing "$DOWNLOADS/disk-cleanup-selection.json"
 }
 
+@test "guard: a selection file without the secret is never removed" {
+  printf '{"token":"abcdef12","ids":[1]}' > "$DOWNLOADS/disk-cleanup-selection.json"
+  guard selection "$DOWNLOADS/disk-cleanup-selection.json" abcdef12 "$SELECTION_SECRET"
+  [ "$status" -ne 0 ]
+  assert_exists "$DOWNLOADS/disk-cleanup-selection.json"
+}
+
 @test "guard: the selection exception refuses every other file in Downloads" {
-  printf '{"token":"abcdef12","ids":[1]}' > "$DOWNLOADS/tax-return.json"
-  printf '{"token":"abcdef12","ids":[1]}' > "$DOWNLOADS/disk-cleanup-selection-old.json"
+  printf '%s' "$SELECTION_BODY" > "$DOWNLOADS/tax-return.json"
+  printf '%s' "$SELECTION_BODY" > "$DOWNLOADS/disk-cleanup-selection-old.json"
   printf 'my notes' > "$DOWNLOADS/disk-cleanup-selection (1).json"
-  guard selection "$DOWNLOADS/tax-return.json" abcdef12
+  guard selection "$DOWNLOADS/tax-return.json" abcdef12 "$SELECTION_SECRET"
   [ "$status" -ne 0 ]
-  guard selection "$DOWNLOADS/disk-cleanup-selection-old.json" abcdef12
+  guard selection "$DOWNLOADS/disk-cleanup-selection-old.json" abcdef12 "$SELECTION_SECRET"
   [ "$status" -ne 0 ]
-  guard selection "$DOWNLOADS/disk-cleanup-selection (1).json" abcdef12
+  guard selection "$DOWNLOADS/disk-cleanup-selection (1).json" abcdef12 "$SELECTION_SECRET"
   [ "$status" -ne 0 ]
   guard file "$DOWNLOADS/tax-return.json"
   [ "$status" -ne 0 ]
@@ -81,15 +97,15 @@ guard() { run_function guarded_delete "$@"; }
 
 @test "guard: the selection exception applies in Downloads only and never to links or folders" {
   mkdir -p "$SANDBOX_HOME/Documents" "$DOWNLOADS/sub" "$DOWNLOADS/disk-cleanup-selection-2.json"
-  printf '{"token":"abcdef12","ids":[1]}' > "$SANDBOX_HOME/Documents/disk-cleanup-selection.json"
-  printf '{"token":"abcdef12","ids":[1]}' > "$DOWNLOADS/sub/disk-cleanup-selection.json"
-  printf '{"token":"abcdef12","ids":[1]}' > "$OUTSIDE/disk-cleanup-selection.json"
+  printf '%s' "$SELECTION_BODY" > "$SANDBOX_HOME/Documents/disk-cleanup-selection.json"
+  printf '%s' "$SELECTION_BODY" > "$DOWNLOADS/sub/disk-cleanup-selection.json"
+  printf '%s' "$SELECTION_BODY" > "$OUTSIDE/disk-cleanup-selection.json"
   ln -s "$OUTSIDE/disk-cleanup-selection.json" "$DOWNLOADS/disk-cleanup-selection.json"
   local target
   for target in "$SANDBOX_HOME/Documents/disk-cleanup-selection.json" "$DOWNLOADS/sub/disk-cleanup-selection.json" \
     "$OUTSIDE/disk-cleanup-selection.json" "$DOWNLOADS/disk-cleanup-selection.json" \
     "$DOWNLOADS/disk-cleanup-selection-2.json"; do
-    guard selection "$target" abcdef12
+    guard selection "$target" abcdef12 "$SELECTION_SECRET"
     [ "$status" -ne 0 ]
     assert_exists "$target"
   done

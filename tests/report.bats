@@ -20,7 +20,7 @@ report_lacks() {
   if /usr/bin/grep -Fq -- "$1" "$REPORT"; then echo "report contains: $1"; return 1; fi
 }
 
-ROW_PATTERN='^<tr data-id="[0-9]+" data-size="[0-9]+" data-mtime="[0-9]+" data-group="(large-files|old-downloads)"><td class="pick"><input type="checkbox" id="item-[0-9]+"></td><td class="name"><label for="item-[0-9]+">[^<>]*</label></td><td class="folder">[^<>]*</td><td class="size"></td><td class="date"></td><td class="group"></td></tr>$'
+ROW_PATTERN='^<tr data-id="[0-9]+" data-size="[0-9]+" data-mtime="[0-9]+" data-group="(large-files|old-downloads)"><td class="pick"><input type="checkbox" id="item-[0-9]+"></td><td class="name" dir="auto"><label for="item-[0-9]+">[^<>]*</label></td><td class="folder" dir="auto">[^<>]*</td><td class="size"></td><td class="date"></td><td class="group"></td></tr>$'
 
 @test "the report is one self-contained page with the required CSP" {
   review_for_token
@@ -39,15 +39,15 @@ ROW_PATTERN='^<tr data-id="[0-9]+" data-size="[0-9]+" data-mtime="[0-9]+" data-g
 
 @test "the page carries the token and one row per item, all unchecked" {
   review_for_token
-  report_has "<tbody id=\"rows\" data-token=\"$TOKEN\">"
+  report_has "<tbody id=\"rows\" data-token=\"$TOKEN\" data-secret=\"$SECRET\">"
   [ "$(/usr/bin/grep -c '^<tr data-id=' "$REPORT")" = "$(json get total_item_count)" ]
   [ "$(/usr/bin/grep '^<tr data-id=' "$REPORT" | /usr/bin/grep -cvE "$ROW_PATTERN")" = "0" ]
   report_lacks ' checked'
   local size mtime
   size=$((12 * MEBIBYTE))
   mtime=$(/usr/bin/stat -f '%m' "$HOME_DIR/Movies/trip/plain-video.mov")
-  report_has "<tr data-id=\"1\" data-size=\"$size\" data-mtime=\"$mtime\" data-group=\"large-files\"><td class=\"pick\"><input type=\"checkbox\" id=\"item-1\"></td><td class=\"name\"><label for=\"item-1\">plain-video.mov</label></td><td class=\"folder\">~/Movies/trip</td>"
-  report_has '<label for="item-2">old-form.pdf</label></td><td class="folder">~/Downloads</td>'
+  report_has "<tr data-id=\"1\" data-size=\"$size\" data-mtime=\"$mtime\" data-group=\"large-files\"><td class=\"pick\"><input type=\"checkbox\" id=\"item-1\"></td><td class=\"name\" dir=\"auto\"><label for=\"item-1\">plain-video.mov</label></td><td class=\"folder\" dir=\"auto\">~/Movies/trip</td>"
+  report_has '<label for="item-2">old-form.pdf</label></td><td class="folder" dir="auto">~/Downloads</td>'
 }
 
 @test "the home path never appears in the report; folders use a tilde" {
@@ -56,7 +56,7 @@ ROW_PATTERN='^<tr data-id="[0-9]+" data-size="[0-9]+" data-mtime="[0-9]+" data-g
   report_lacks "$HOME_DIR"
   report_lacks "$(id -un)/"
   report_has '<label for="item-1">plain-video.mov</label>'
-  report_has '>top-level.iso</label></td><td class="folder">~</td>'
+  report_has '>top-level.iso</label></td><td class="folder" dir="auto">~</td>'
 }
 
 @test "hostile file and folder names are rendered as text" {
@@ -75,7 +75,7 @@ ROW_PATTERN='^<tr data-id="[0-9]+" data-size="[0-9]+" data-mtime="[0-9]+" data-g
   [ "$(/usr/bin/grep -c '</script' "$REPORT")" = "1" ]
   report_has '&lt;img src=x onerror=alert(1)&gt;.mov</label>'
   report_has '&lt;script&gt;alert(2)&lt;!--.bin</label>'
-  report_has 'a&amp;b &#39;q&#39; &quot;d&quot;.mp4</label></td><td class="folder">~/Documents/&quot;&gt;&lt;svg onload=alert(3)&gt;</td>'
+  report_has 'a&amp;b &#39;q&#39; &quot;d&quot;.mp4</label></td><td class="folder" dir="auto">~/Documents/&quot;&gt;&lt;svg onload=alert(3)&gt;</td>'
   report_has '$(touch pwned-by-report) `touch pwned-too`.bin</label>'
   report_has '&amp;lt;already&amp;amp;escaped&amp;gt;.bin</label>'
   report_has '&#39;-alert(4)-&#39;\.bin</label>'
@@ -122,7 +122,40 @@ ROW_PATTERN='^<tr data-id="[0-9]+" data-size="[0-9]+" data-mtime="[0-9]+" data-g
   /bin/rm -rf "$HOME_DIR/Movies" "$HOME_DIR/Downloads"
   review_for_token
   [ "$(json get total_item_count)" = "0" ]
-  report_has "<tbody id=\"rows\" data-token=\"$TOKEN\">"
+  report_has "<tbody id=\"rows\" data-token=\"$TOKEN\" data-secret=\"$SECRET\">"
   [ "$(/usr/bin/grep -c '^<tr data-id=' "$REPORT")" = "0" ]
   report_has '</html>'
+}
+
+@test "the page carries the selection secret and writes it into the saved file" {
+  review_for_token
+  [[ "$SECRET" =~ ^[0-9a-f]{32}$ ]]
+  [ "$(/usr/bin/grep -c "$SECRET" "$REPORT")" = "1" ]
+  report_has 'getAttribute("data-secret")'
+  report_has '/^[0-9a-f]{32}$/.test(secret)'
+  report_has '"{\"token\":\"" + token + "\",\"secret\":\"" + secret + "\",\"ids\":[" + ids.join(",") + "]}"'
+}
+
+@test "names and folders are isolated against bidirectional text tricks" {
+  review_for_token
+  report_has 'unicode-bidi: isolate'
+  [ "$(/usr/bin/grep -c '<td class="name" dir="auto">' "$REPORT")" = "$(json get total_item_count)" ]
+  [ "$(/usr/bin/grep -c '<td class="folder" dir="auto">' "$REPORT")" = "$(json get total_item_count)" ]
+}
+
+@test "only the checkbox and its label tick a row" {
+  review_for_token
+  report_lacks 'closest('
+  report_lacks 'tbody tr { cursor: pointer'
+  report_lacks '.checked = !'
+  [ "$(/usr/bin/grep -c 'addEventListener("click"' "$REPORT")" = "3" ]
+}
+
+@test "the summary says how many ticked items the filter hides" {
+  review_for_token
+  report_has 'hidden by the filter'
+  report_has 'tersembunyi oleh filter'
+  report_has '{hidden}'
+  report_has 'Simpan pilihan'
+  report_has '>Save selection</button>'
 }

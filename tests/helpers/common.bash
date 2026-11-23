@@ -6,7 +6,7 @@
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CLEANUP="$PROJECT_ROOT/scripts/cleanup.sh"
 JSON_TOOL="$PROJECT_ROOT/tests/helpers/json.pl"
-SYSTEM_TOOLS="find du stat awk od tr uname readlink id dscl sort"
+SYSTEM_TOOLS="find du stat awk od tr uname readlink id dscl sort shasum"
 REVIEW_TEST_MIN_MB=10
 MEBIBYTE=1048576
 SANDBOX_MARKER="disk-cleanup-test"
@@ -256,6 +256,26 @@ review_for_token() {
   TOKEN=$(json get token)
   MANIFEST="$STATE_DIR/review-manifest"
   REPORT="$STATE_DIR/review.html"
+  SECRET=$(manifest_value secret)
+}
+
+# Prints the value of one header line of the manifest.
+manifest_value() {
+  /usr/bin/sed -n "s/^$1=//p" "$MANIFEST"
+}
+
+MANIFEST_HEADER_LINES=7
+
+# Recomputes the integrity line the way the tool does: SHA-256 over the
+# secret line followed by every item line. Tests use it to play an attacker
+# who read the secret, so the checks behind the seal are exercised too.
+reseal_manifest() {
+  local digest
+  digest=$({
+    printf '%s\n' "$(manifest_value secret)"
+    /usr/bin/awk -v header="$MANIFEST_HEADER_LINES" 'NR > header' "$MANIFEST"
+  } | /usr/bin/shasum -a 256 | /usr/bin/cut -d ' ' -f 1)
+  /usr/bin/sed -i '' "s/^integrity=.*/integrity=$digest/" "$MANIFEST"
 }
 
 # Prints the manifest id of the item with this absolute path.
@@ -267,11 +287,18 @@ manifest_paths() {
   /usr/bin/awk -F '\t' 'NF == 6 { print $6 }' "$MANIFEST"
 }
 
-# write_selection TOKEN IDS [FILE NAME]: what the report's Save button writes.
+# write_selection TOKEN IDS [FILE NAME] [SECRET]: what the report's Save
+# button writes; the secret defaults to the one of the latest review.
 write_selection() {
-  local name=${3:-disk-cleanup-selection.json}
+  local name=${3:-disk-cleanup-selection.json} secret=${4-$SECRET}
   mkdir -p "$SANDBOX_HOME/Downloads"
-  printf '{"token":"%s","ids":[%s]}' "$1" "$2" > "$SANDBOX_HOME/Downloads/$name"
+  printf '{"token":"%s","secret":"%s","ids":[%s]}' "$1" "$secret" "$2" > "$SANDBOX_HOME/Downloads/$name"
+}
+
+# The v1.1-style file an assistant could write from the token alone.
+write_forged_selection() {
+  mkdir -p "$SANDBOX_HOME/Downloads"
+  printf '{"token":"%s","ids":[%s]}' "$1" "$2" > "$SANDBOX_HOME/Downloads/disk-cleanup-selection.json"
 }
 
 apply_review() {

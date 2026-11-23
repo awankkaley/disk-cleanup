@@ -203,7 +203,7 @@ Things worth knowing:
 - **The AI cannot see the page.** The page is a file on your own computer that your browser opens
   directly. It is never sent to the AI or anywhere else; the page loads nothing from the internet.
   The assistant is told only how many items were found and their total size, and afterwards how
-  many were moved. The saved selection file holds a code and item numbers, no file names.
+  many were moved. The saved selection file holds two codes and item numbers, no file names.
 - **Nothing is deleted from the page.** Ticking and saving does nothing by itself. Files move only
   after you say "done" in the chat.
 - **You can get files back.** They are in the Trash or Recycle Bin. On a Mac, open the Trash and
@@ -217,7 +217,8 @@ Things worth knowing:
   because removing them would free no space here.
 - **A changed file is left alone.** If a file was modified, moved or replaced after the page was
   made, it is skipped.
-- **The page is good for one hour** and for one use. After that, ask for a new review.
+- **The page is good for one hour** and for one use. After that, ask for a new review. An expired
+  page and the list behind it are deleted automatically the next time the skill runs.
 - **Never listed:** anything inside apps, the system `Library` or `AppData` folders, hidden
   folders, and libraries that macOS shows as a single item, such as your Photos library.
 
@@ -250,10 +251,13 @@ These hold no matter what the AI does, because the script is written that way an
   inserted into them. This is true for the review as well: the AI gets item counts and sizes only.
 - **Fixed list of locations for cleaning.** The cleaner can only clean the categories listed below.
   There is no "clean everything" mode and no way to pass it a folder to delete.
-- **Personal files only by your own tick, and only to the Trash.** A personal file is moved only if
-  you ticked it in the review page, it is still the same file (same size and date), and it is
-  inside your home folder outside the protected locations. It is moved to the Trash or Recycle Bin,
-  never deleted permanently, whatever goes wrong.
+- **Personal files only from the review list, and only to the Trash.** A personal file is moved only
+  if a saved selection names it, it was in the list of that review, it still fits the rule it was
+  listed under (still that large, or still an old file directly in Downloads), it is still the same
+  file (same size and date), and it is inside your home folder outside the protected locations. It
+  is moved to the Trash or Recycle Bin, never deleted permanently, whatever goes wrong. What the
+  script can **not** prove is that the selection was really saved by you: see
+  [Who saved the selection](#who-saved-the-selection) below.
 - **Guarded deletion.** Every permanent deletion goes through one routine that refuses anything
   outside your home folder, anything too close to the top of it, any folder that contains a
   protected folder, and any symbolic link. Links are never followed.
@@ -280,18 +284,38 @@ other command during a cleanup.
 
 - The AI must not explore your disk on its own (`ls`, `find`, `du`, `Get-ChildItem` and so on).
 - The AI must not open the review page, the list behind it, or your saved selection.
+- The AI must not create or change a selection file. Only your own click on "Save selection" counts.
 - The AI must not ask you to paste file names, and must not pick files for you.
 - The AI must not read the optional deletion log or the script's state folder.
 - The AI must not delete anything itself or clean categories you did not approve.
+
+### Who saved the selection
+
+The script cannot see who clicked. What it does instead:
+
+- Each review gets a second, longer code (the selection secret). The script never prints it, so the
+  AI is never given it. It exists only inside the review page and the list behind it, and the page
+  writes it into the file that "Save selection" saves. A selection file without the right secret is
+  refused and nothing is moved.
+- The list behind the page carries a checksum. If the list was changed after the review, nothing is
+  moved. Each file is also checked again against the rule it was listed under.
+
+What this does **not** guarantee: the assistant runs as your user account, so it is technically able
+to read the page or the list, take the secret, and write a selection file itself. The skill forbids
+exactly that, so doing it is an open breach of the rules and not something that can happen by
+accident, but it is a rule, not a lock. Your AI app's permission prompts are the real barrier: during
+a review, the only commands to approve are `review` and `review-apply`.
 
 ### Files that do contain your file names
 
 Be clear about this: while a review is open, two files on your disk hold the names and locations of
 the listed files: the page itself (`review.html`) and the list behind it. They sit in the script's
-state folder, readable only by your own user account, and are removed when your selection is
-applied. The AI is instructed not to read them; it is **not technically prevented** from doing so,
-because the assistant runs as you. If you start a review and never finish it, the two files stay
-until the next review replaces them or you delete the state folder (see [Uninstall](#uninstall)).
+state folder, readable only by your own user account. They are removed when your selection is
+applied, when a new review replaces them, and, if you never finish the review, the next time any
+disk-cleanup command runs after the review is more than an hour old. If the skill is never run
+again, they stay until you delete the state folder (see [Uninstall](#uninstall)). The AI is
+instructed not to read them; it is **not technically prevented** from doing so, because the
+assistant runs as you.
 
 The same goes for the optional deletion log: if you ask for a record of what was cleaned, the script
 writes a log file on your own computer (`--log`, off by default). That file contains paths. The AI is
@@ -309,9 +333,8 @@ inside the script (and, for the review, the page that only you open).
 
 **Safe to clean** (things apps recreate on their own):
 
-- Apps' temporary files, including those of chat and media apps such as Slack, Discord, Microsoft
-  Teams, Spotify, Zoom, WhatsApp and Telegram. Only their temporary files: never messages, settings
-  or downloads.
+- Apps' temporary files, including those of Slack, Discord, Microsoft Teams (classic) and VS Code.
+  Only their temporary files: never messages, settings or downloads.
 - Browser temporary files for Chrome, Edge, Firefox, Brave, Opera, Arc and Safari. Only the cache:
   you stay logged in everywhere.
 - Temporary files and old logs older than 7 days.
@@ -549,11 +572,10 @@ command to get it back; **irreversible** means it is gone for good.
 Every category also carries a `rebuild_cost` (1 nothing noticeable, 2 re-downloaded or rebuilt on
 next use, 3 a long re-download or rebuild), which orders the suggestion of `scan --target-gb`.
 
-`app-caches` covers the system cache folder plus a fixed table of known apps (Slack, Discord,
-Microsoft Teams, Spotify, Zoom, WhatsApp, Telegram, VS Code; the exact list differs slightly between
-macOS and Windows), and for those only folders named
-`Cache`, `Code Cache`, `GPUCache` or `CachedData` (Spotify: `PersistentCache`). An app that is running
-is skipped. On Windows, `store-app-caches` covers only each Store app's `TempState` and `INetCache`
+`app-caches` covers the system cache folder plus a fixed table of four known apps (Slack, Discord,
+Microsoft Teams classic, VS Code), and for those only folders named `Cache`, `Code Cache`,
+`GPUCache` or `CachedData`. Apps that keep downloads in a cache-named folder (Spotify's offline
+music, for example) are deliberately not in the table. An app that is running is skipped. On Windows, `store-app-caches` covers only each Store app's `TempState` and `INetCache`
 folders; `LocalCache` is left alone. `ios-updates` never touches device backups.
 
 For `pnpm-store` the scan shows no size: pnpm only removes packages that no project uses any more,
@@ -591,11 +613,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\cleanup.ps1 review-a
 | `scan` | `--deep` also look for stale `node_modules` (slow). `--target-gb N` (1 to 10000) add a `suggestion`: the safe categories, cheapest to rebuild first, that reach N GB. `--min-age-days N` age limit for temp files and logs, default 7. `--projects-dir PATH` where the deep scan looks, default your home folder. |
 | `clean` | `--token ID` from the scan (required). `--categories id1,id2` (required). `--empty-trash` needed for `trash`. `--min-idle-days N` for `node-modules-stale`, default and minimum 30. `--log` write a local list of deleted paths. |
 | `review` | `--min-size-mb N` smallest file listed as large, default 100, minimum 10. `--downloads-age-days N` age of items in Downloads, default 90, minimum 7. Writes the page and opens it; prints counts and a review token. |
-| `review-apply` | `--token ID` from the review (required). Reads `disk-cleanup-selection.json` from the Downloads folder and moves the selected files to the Trash / Recycle Bin. |
+| `review-apply` | `--token ID` from the review (required). Reads `disk-cleanup-selection.json` from the Downloads folder, accepts it only with the secret the review page wrote into it, and moves the selected files to the Trash / Recycle Bin. |
 | `--help`, `--version` | |
 
 A scan token is valid for 15 minutes and one `clean`. A review token is separate, valid for 60
-minutes and one `review-apply`. The review lists at most 500 items, largest first.
+minutes and one `review-apply`. The review lists at most 500 items, largest first. Every command,
+`--help` and `--version` included, first deletes the page and list of a review older than 60 minutes.
 
 ## Optional: Full Disk Access on macOS
 

@@ -46,7 +46,12 @@ Describe 'scan --target-gb' {
         foreach ($entry in $run.Data.categories) { @(1, 2, 3) | Should -Contain $entry.rebuild_cost }
         $run.Json | Should -Not -Match '"rebuild_cost":"'
         (Get-CategoryEntry -Data $run.Data -Id 'temp-files').rebuild_cost | Should -Be 1
-        (Get-CategoryEntry -Data $run.Data -Id 'cargo-cache').rebuild_cost | Should -Be 2
+        (Get-CategoryEntry -Data $run.Data -Id 'browser-chrome').rebuild_cost | Should -Be 1
+        (Get-CategoryEntry -Data $run.Data -Id 'app-caches').rebuild_cost | Should -Be 2
+        (Get-CategoryEntry -Data $run.Data -Id 'store-app-caches').rebuild_cost | Should -Be 2
+        (Get-CategoryEntry -Data $run.Data -Id 'docker-dangling').rebuild_cost | Should -Be 2
+        (Get-CategoryEntry -Data $run.Data -Id 'trash').rebuild_cost | Should -Be 2
+        (Get-CategoryEntry -Data $run.Data -Id 'cargo-cache').rebuild_cost | Should -Be 3
         (Get-CategoryEntry -Data $run.Data -Id 'gradle-cache').rebuild_cost | Should -Be 3
     }
 
