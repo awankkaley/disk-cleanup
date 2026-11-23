@@ -167,15 +167,45 @@ function Get-ToolStartInfo {
     return $info
 }
 
-# Ends the one child process this script started itself, and only after it ran past
-# the timeout. No other process is ever terminated.
+# Ids of the child this script started plus the processes that child spawned after
+# it started (a batch shim runs the real tool as a grandchild). The start-time check
+# keeps a recycled process id from ever pointing at an unrelated process.
+function Get-ToolChildTreeIdList {
+    param($Process)
+    $ids = New-Object -TypeName 'System.Collections.Generic.List[int]'
+    $ids.Add([int]$Process.Id)
+    try {
+        $startTime = $Process.StartTime
+        $all = @(Get-CimInstance -ClassName Win32_Process -ErrorAction Stop)
+    } catch {
+        return $ids.ToArray()
+    }
+    $index = 0
+    while ($index -lt $ids.Count) {
+        $parentId = $ids[$index]
+        foreach ($item in $all) {
+            if ([int]$item.ParentProcessId -ne $parentId) { continue }
+            if ($null -eq $item.CreationDate -or $item.CreationDate -lt $startTime) { continue }
+            if (-not $ids.Contains([int]$item.ProcessId)) { $ids.Add([int]$item.ProcessId) }
+        }
+        $index++
+    }
+    return $ids.ToArray()
+}
+
+# Ends the one child process tree this script started itself, and only after it ran
+# past the timeout. No other process is ever terminated.
 function Stop-ToolChild {
     param($Process)
-    try {
-        $Process.Kill()
-    } catch {
-        # The child exited on its own in the meantime; the caller reports the timeout either way.
-        return
+    $ids = @(Get-ToolChildTreeIdList -Process $Process)
+    [array]::Reverse($ids)
+    foreach ($id in $ids) {
+        try {
+            [System.Diagnostics.Process]::GetProcessById($id).Kill()
+        } catch {
+            # Already exited on its own; the caller reports the timeout either way.
+            continue
+        }
     }
 }
 
@@ -192,6 +222,7 @@ function Invoke-ToolProcess {
         $null = $process.StandardError.ReadToEndAsync()
         if (-not $process.WaitForExit((Get-ToolTimeoutMillisecond))) {
             Stop-ToolChild -Process $process
+            [void]$process.WaitForExit($script:TOOL_OUTPUT_GRACE_MILLISECONDS)
             return (Get-ToolFailure)
         }
         $exitCode = $process.ExitCode
