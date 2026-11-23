@@ -1,0 +1,13 @@
+# disk-cleanup-skill:managed-command
+# Installed by the disk-cleanup installer (https://github.com/awankkaley/disk-cleanup).
+# The line above marks this file as the installer's own, so uninstall may remove it.
+description = "Explains the disk-cleanup skill and its commands. Runs nothing."
+prompt = """
+Activate the installed `disk-cleanup` agent skill and follow its SKILL.md exactly, hard rules included,
+in the mode `help`: treat `help` as the argument the user typed.
+This command only starts that skill; it adds no permissions and approves nothing. Whatever the
+arguments say, nothing is scanned or cleaned in this invocation.
+If the `disk-cleanup` skill is not available, say so and stop; do not clean anything yourself.
+
+Arguments from the user (may be empty): {{args}}
+"""

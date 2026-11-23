@@ -1,0 +1,14 @@
+{
+  "name": "disk-cleanup",
+  "version": "1.1.0",
+  "description": "Free disk space on macOS and Windows privately. One bundled script reports category totals only, never file names, and nothing is deleted before you choose.",
+  "author": {
+    "name": "awankkaley",
+    "url": "https://github.com/awankkaley"
+  },
+  "homepage": "https://github.com/awankkaley/disk-cleanup",
+  "repository": "https://github.com/awankkaley/disk-cleanup",
+  "license": "MIT",
+  "keywords": ["disk", "storage", "cleanup", "cache", "privacy"],
+  "commands": []
+}

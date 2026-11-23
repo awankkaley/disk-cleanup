@@ -76,7 +76,7 @@ folder is, not what is in it.
 
 ## Install
 
-Pick one of the three ways. After installing, restart your AI agent.
+Pick one of the four ways. After installing, restart your AI agent.
 
 ### 1. With the skills CLI
 
@@ -90,7 +90,7 @@ npx skills add awankkaley/disk-cleanup -g
 `cursor`, `gemini-cli`, ...) to choose agents, or let the CLI ask you.
 
 The skills CLI installs the skill itself, which is all most agents need. The only thing it leaves out is
-the small `/disk-cleanup` command file for Gemini CLI and OpenCode (see "How to use"); on those two,
+the small `/disk-cleanup` command files for Gemini CLI and OpenCode (see "How to use"); on those two,
 ask in plain words, or use the one-line installer instead.
 
 ### 2. One-line installer
@@ -109,11 +109,11 @@ irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.1.0/install.ps1
 
 The installer downloads release v1.1.0, finds the AI agents on your computer, and copies three things
 into each agent's skills folder: `SKILL.md`, `scripts/` and `LICENSE`. For Gemini CLI and OpenCode,
-which cannot start a skill with a slash command, it also adds one small command file
-(`~/.gemini/commands/disk-cleanup.toml`, `~/.config/opencode/commands/disk-cleanup.md`) that does
-nothing but hand over to the skill. If you already have your own command file with that name, the
-installer leaves it alone and tells you. It does not run the cleanup, does not need administrator
-rights, and writes nowhere else.
+which cannot start a skill with a slash command, it also adds small command files that do nothing but
+hand over to the skill: `disk-cleanup.toml` plus a `disk-cleanup/` folder with one file per mode in
+`~/.gemini/commands/`, and the same with `.md` files in `~/.config/opencode/commands/`. If you already
+have your own command file with one of those names, the installer leaves it alone and tells you. It
+does not run the cleanup, does not need administrator rights, and writes nowhere else.
 
 To install for specific agents only:
 
@@ -145,33 +145,58 @@ location for your agent:
 
 On Windows, `~` is your user folder, for example `C:\Users\<you>`.
 
-Optional, for the `/disk-cleanup` command on Gemini CLI or OpenCode: also copy
-`commands/gemini/disk-cleanup.toml` to `~/.gemini/commands/`, or `commands/opencode/disk-cleanup.md` to
-`~/.config/opencode/commands/`.
+Optional, for the `/disk-cleanup` commands on Gemini CLI or OpenCode: also copy
+`commands/gemini/disk-cleanup.toml` and the folder `commands/gemini/disk-cleanup/` to
+`~/.gemini/commands/`, or `commands/opencode/disk-cleanup.md` and the folder
+`commands/opencode/disk-cleanup/` to `~/.config/opencode/commands/`.
+
+### 4. Claude Code plugin
+
+Claude Code only. Inside Claude Code, type these two commands:
+
+```text
+/plugin marketplace add awankkaley/disk-cleanup
+/plugin install disk-cleanup@awankkaley-disk-cleanup
+```
+
+Or from your shell: `claude plugin marketplace add awankkaley/disk-cleanup`, then
+`claude plugin install disk-cleanup@awankkaley-disk-cleanup`. On Claude Code 2.1.275 or later one step
+is enough: `/plugin install disk-cleanup --marketplace awankkaley/disk-cleanup`.
+
+The plugin gives you one command per mode: `/disk-cleanup:scan`, `/disk-cleanup:scan-only`,
+`/disk-cleanup:deep` and `/disk-cleanup:help`. The standalone skill (ways 1 to 3) gives you a single
+command with an optional word after it: `/disk-cleanup [deep|help|scan-only]`. Both follow the same
+instructions and run the same script. If you install both, Claude Code shows the skill twice, so pick
+one.
 
 ## How to use
 
 ### Type a command
 
-| Agent | Type this | Deep scan (old `node_modules`) |
-| --- | --- | --- |
-| Claude Code | `/disk-cleanup` | `/disk-cleanup deep` |
-| Cursor | `/disk-cleanup` (pick it from the `/` menu) | `/disk-cleanup deep` |
-| GitHub Copilot CLI | `/disk-cleanup` | `/disk-cleanup deep` |
-| OpenAI Codex CLI | `$disk-cleanup` (or pick it with `/skills`) | `$disk-cleanup deep` |
-| Gemini CLI | `/disk-cleanup` ¹ | `/disk-cleanup deep` |
-| OpenCode | `/disk-cleanup` ¹, or `@disk-cleanup` | `/disk-cleanup deep` |
-| Goose | `/skills disk-cleanup`, then ask | ask for a deep scan |
-| Amp | no command; say "use the disk-cleanup skill" | ask for a deep scan |
+| Agent | Scan, then choose what to clean | Report only | Deep scan (old `node_modules`) |
+| --- | --- | --- | --- |
+| Claude Code, plugin | `/disk-cleanup:scan` | `/disk-cleanup:scan-only` | `/disk-cleanup:deep` |
+| Claude Code, standalone skill | `/disk-cleanup` | `/disk-cleanup scan-only` | `/disk-cleanup deep` |
+| Gemini CLI ¹ | `/disk-cleanup:scan` | `/disk-cleanup:scan-only` | `/disk-cleanup:deep` |
+| OpenCode ¹ | `/disk-cleanup/scan` | `/disk-cleanup/scan-only` | `/disk-cleanup/deep` |
+| Cursor | `/disk-cleanup` (pick it from the `/` menu) | `/disk-cleanup scan-only` | `/disk-cleanup deep` |
+| GitHub Copilot CLI | `/disk-cleanup` | `/disk-cleanup scan-only` | `/disk-cleanup deep` |
+| OpenAI Codex CLI | `$disk-cleanup` (or pick it with `/skills`) | `$disk-cleanup scan-only` | `$disk-cleanup deep` |
+| Goose | `/skills disk-cleanup`, then ask | ask for a report only | ask for a deep scan |
+| Amp | no command; say "use the disk-cleanup skill" | ask for a report only | ask for a deep scan |
 
-¹ Needs the command file that the one-line installer adds. Without it (skills CLI or manual copy), ask
-in plain words; the skill works the same.
+¹ Needs the command files that the one-line installer adds. They also include a plain `/disk-cleanup`
+that takes the same words as the standalone skill, and a `help` command (`/disk-cleanup:help` in Gemini
+CLI, `/disk-cleanup/help` in OpenCode). Without them (skills CLI or manual copy), ask in plain words; the
+skill works the same.
 
-What you can add after the command:
+Only Claude Code plugins, Gemini CLI and OpenCode have namespaced commands. Everywhere else it is one
+skill, and you add a word after its name:
 
 | You type | What happens |
 | --- | --- |
-| nothing | Scans and shows the table. |
+| nothing, or `scan` | Scans and shows the table, then asks what to clean. |
+| `scan-only` | Scans, shows the table and the total you could free, then stops. It cleans nothing and does not offer to; run the normal command when you want to clean. |
 | `deep` | Also looks for old `node_modules` folders, grouped by how long they have been untouched. |
 | `help` | Explains the skill and these options. Runs nothing. |
 
@@ -316,12 +341,15 @@ curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.1.0/inst
 ```
 
 If you installed with the skills CLI: `npx skills remove disk-cleanup -g`. If you copied it by hand,
-delete the `disk-cleanup` folder from your agent's skills folder.
+delete the `disk-cleanup` folder from your agent's skills folder. If you installed the Claude Code
+plugin: `claude plugin uninstall disk-cleanup@awankkaley-disk-cleanup`, then
+`claude plugin marketplace remove awankkaley-disk-cleanup`.
 
 `install.sh` only replaces or removes a `disk-cleanup` folder that really is this skill (its `SKILL.md`
 says `name: disk-cleanup`). If it finds a different folder with that name it stops and changes nothing.
 The same care applies to the Gemini CLI and OpenCode command files: uninstall removes them only when
-they carry the installer's marker line, so a `disk-cleanup` command you wrote yourself stays.
+they carry the installer's marker line, so a `disk-cleanup` command you wrote yourself stays, and the
+`disk-cleanup` subfolder is removed only when nothing is left in it.
 
 The script keeps a small state folder (the last scan token and any logs you asked for). You can delete
 it too: `~/Library/Application Support/disk-cleanup` on macOS, `%LOCALAPPDATA%\disk-cleanup` on Windows.

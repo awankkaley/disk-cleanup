@@ -18,8 +18,13 @@ setup() {
   printf 'readme\n' >"$CHECKOUT/README.md"
   printf 'test\n' >"$CHECKOUT/tests/some.bats"
   cp -R "$REPO_ROOT/commands" "$CHECKOUT/commands"
+  cp -R "$REPO_ROOT/.claude-plugin" "$REPO_ROOT/skills" "$CHECKOUT/"
+  JSON_TOOL="$REPO_ROOT/tests/helpers/json.pl"
+  MODES="scan scan-only deep help"
   GEMINI_COMMAND="$FAKE_HOME/.gemini/commands/disk-cleanup.toml"
   OPENCODE_COMMAND="$FAKE_HOME/.config/opencode/commands/disk-cleanup.md"
+  GEMINI_NAMESPACE="$FAKE_HOME/.gemini/commands/disk-cleanup"
+  OPENCODE_NAMESPACE="$FAKE_HOME/.config/opencode/commands/disk-cleanup"
 
   # Any network or cleanup-script execution would be a bug: make it fail loudly.
   printf '#!/bin/bash\necho "curl must not be called" >&2\nexit 97\n' >"$STUB_BIN/curl"
@@ -59,6 +64,10 @@ snapshot_home() {
   [ -f "$dest/scripts/cleanup.ps1" ]
   [ -f "$dest/scripts/lib/helper.sh" ]
   [ "$(cd "$dest" && ls -A | LC_ALL=C sort | tr '\n' ' ')" = "LICENSE SKILL.md scripts " ]
+  [ -d "$CHECKOUT/.claude-plugin" ]
+  [ -d "$CHECKOUT/skills" ]
+  [ -z "$(find "$FAKE_HOME" -name .claude-plugin -o -name plugin.json -o -name marketplace.json)" ]
+  [ "$(find "$FAKE_HOME" -name SKILL.md | wc -l | tr -d ' ')" = "1" ]
 }
 
 @test "installs to detected agents only" {
@@ -346,8 +355,8 @@ snapshot_home() {
   cmp -s "$CHECKOUT/commands/gemini/disk-cleanup.toml" "$GEMINI_COMMAND"
   cmp -s "$CHECKOUT/commands/opencode/disk-cleanup.md" "$OPENCODE_COMMAND"
   local commands
-  commands="$(cd "$FAKE_HOME" && find . -path '*/skills' -prune -o \( -name 'disk-cleanup.*' -o -name commands -o -name prompts \) -print | LC_ALL=C sort | tr '\n' ' ')"
-  [ "$commands" = "./.config/opencode/commands ./.config/opencode/commands/disk-cleanup.md ./.gemini/commands ./.gemini/commands/disk-cleanup.toml " ]
+  commands="$(cd "$FAKE_HOME" && find . -path '*/skills' -prune -o \( -name 'disk-cleanup*' -o -name commands -o -name prompts \) -print | LC_ALL=C sort | tr '\n' ' ')"
+  [ "$commands" = "./.config/opencode/commands ./.config/opencode/commands/disk-cleanup ./.config/opencode/commands/disk-cleanup.md ./.gemini/commands ./.gemini/commands/disk-cleanup ./.gemini/commands/disk-cleanup.toml " ]
   [ "$(cd "$FAKE_HOME/.gemini/skills/disk-cleanup" && ls -A | LC_ALL=C sort | tr '\n' ' ')" = "LICENSE SKILL.md scripts " ]
 }
 
@@ -356,6 +365,7 @@ snapshot_home() {
   run_installer --local "$CHECKOUT"
   [ "$status" -eq 0 ]
   [ -z "$(cd "$FAKE_HOME" && find . -name commands -o -name prompts -o -name 'disk-cleanup.*')" ]
+  [ "$(cd "$FAKE_HOME" && find . -name disk-cleanup | grep -vc '/skills/disk-cleanup$')" = "0" ]
 }
 
 @test "re-install refreshes our own command file" {
@@ -441,14 +451,128 @@ snapshot_home() {
 
 @test "shipped command files carry the marker, pass the arguments and hold no script paths" {
   local file
-  for file in "$REPO_ROOT/commands/gemini/disk-cleanup.toml" "$REPO_ROOT/commands/opencode/disk-cleanup.md"; do
+  [ "$(find "$REPO_ROOT/commands" -type f | wc -l | tr -d ' ')" = "10" ]
+  while IFS= read -r file; do
     grep -qF 'disk-cleanup-skill:managed-command' "$file"
+    grep -qF 'approves nothing' "$file"
+    grep -qF 'hard rules included' "$file"
     run grep -qE 'cleanup\.(sh|ps1)|scripts/|--token|--categories' "$file"
     [ "$status" -eq 1 ]
+    case "$file" in
+      *.toml) grep -qF '{{args}}' "$file" ;;
+      *.md) grep -qF '$ARGUMENTS' "$file" ;;
+      *) false ;;
+    esac
+  done < <(find "$REPO_ROOT/commands" -type f)
+}
+
+@test "each namespaced command file fixes exactly its own mode" {
+  local mode other file
+  for mode in $MODES; do
+    for file in "$REPO_ROOT/commands/gemini/disk-cleanup/$mode.toml" "$REPO_ROOT/commands/opencode/disk-cleanup/$mode.md"; do
+      grep -qF "in the mode \`$mode\`:" "$file"
+      for other in $MODES; do
+        [ "$other" != "$mode" ] || continue
+        run grep -qF "\`$other\`" "$file"
+        [ "$status" -eq 1 ]
+      done
+    done
   done
-  grep -qF '{{args}}' "$REPO_ROOT/commands/gemini/disk-cleanup.toml"
-  grep -qF '$ARGUMENTS' "$REPO_ROOT/commands/opencode/disk-cleanup.md"
-  [ "$(find "$REPO_ROOT/commands" -type f | wc -l | tr -d ' ')" = "2" ]
+  [ "$(find "$REPO_ROOT/commands" -mindepth 3 -type f | wc -l | tr -d ' ')" = "8" ]
+}
+
+@test "namespaced command files are installed into a disk-cleanup subfolder" {
+  run_installer --local "$CHECKOUT" --agent gemini,opencode
+  [ "$status" -eq 0 ]
+  local mode
+  for mode in $MODES; do
+    cmp -s "$CHECKOUT/commands/gemini/disk-cleanup/$mode.toml" "$GEMINI_NAMESPACE/$mode.toml"
+    cmp -s "$CHECKOUT/commands/opencode/disk-cleanup/$mode.md" "$OPENCODE_NAMESPACE/$mode.md"
+  done
+  [ "$(ls -A "$GEMINI_NAMESPACE" | LC_ALL=C sort | tr '\n' ' ')" = "deep.toml help.toml scan-only.toml scan.toml " ]
+  [ "$(ls -A "$OPENCODE_NAMESPACE" | LC_ALL=C sort | tr '\n' ' ')" = "deep.md help.md scan-only.md scan.md " ]
+}
+
+@test "re-install refreshes our namespaced command files and --uninstall removes the empty subfolder" {
+  run_installer --local "$CHECKOUT" --agent gemini
+  [ "$status" -eq 0 ]
+  printf '# disk-cleanup-skill:managed-command\nprompt = "stale"\n' >"$GEMINI_NAMESPACE/deep.toml"
+  run_installer --local "$CHECKOUT" --agent gemini
+  [ "$status" -eq 0 ]
+  cmp -s "$CHECKOUT/commands/gemini/disk-cleanup/deep.toml" "$GEMINI_NAMESPACE/deep.toml"
+
+  run_installer --uninstall --agent gemini
+  [ "$status" -eq 0 ]
+  [ ! -e "$GEMINI_NAMESPACE" ]
+  [ -d "$FAKE_HOME/.gemini/commands" ]
+}
+
+@test "foreign files in the namespace subfolder are never replaced or removed" {
+  mkdir -p "$GEMINI_NAMESPACE" "$OPENCODE_NAMESPACE"
+  printf 'prompt = "my own deep"\n' >"$GEMINI_NAMESPACE/deep.toml"
+  printf 'prompt = "my extra"\n' >"$GEMINI_NAMESPACE/mine.toml"
+  printf 'my own help\n' >"$OPENCODE_NAMESPACE/help.md"
+
+  run_installer --local "$CHECKOUT" --agent gemini,opencode
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"skipped    $GEMINI_NAMESPACE/deep.toml"* ]]
+  [[ "$output" == *"skipped    $OPENCODE_NAMESPACE/help.md"* ]]
+  [ "$(cat "$GEMINI_NAMESPACE/deep.toml")" = 'prompt = "my own deep"' ]
+  [ "$(cat "$OPENCODE_NAMESPACE/help.md")" = "my own help" ]
+  [ -f "$GEMINI_NAMESPACE/scan.toml" ]
+  [ -f "$OPENCODE_NAMESPACE/scan-only.md" ]
+
+  run_installer --uninstall --agent gemini,opencode
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"kept       $GEMINI_NAMESPACE/deep.toml"* ]]
+  [ "$(ls -A "$GEMINI_NAMESPACE" | LC_ALL=C sort | tr '\n' ' ')" = "deep.toml mine.toml " ]
+  [ "$(cat "$GEMINI_NAMESPACE/deep.toml")" = 'prompt = "my own deep"' ]
+  [ "$(cat "$GEMINI_NAMESPACE/mine.toml")" = 'prompt = "my extra"' ]
+  [ "$(ls -A "$OPENCODE_NAMESPACE")" = "help.md" ]
+  [ "$(cat "$OPENCODE_NAMESPACE/help.md")" = "my own help" ]
+}
+
+@test "a symlinked namespace subfolder is left alone, and so is its target" {
+  mkdir -p "$FAKE_HOME/.gemini/commands" "$SANDBOX/elsewhere"
+  printf '# disk-cleanup-skill:managed-command\nprompt = "linked"\n' >"$SANDBOX/elsewhere/deep.toml"
+  ln -s "$SANDBOX/elsewhere" "$GEMINI_NAMESPACE"
+
+  run_installer --local "$CHECKOUT" --agent gemini
+  [ "$status" -eq 0 ]
+  [ -f "$GEMINI_COMMAND" ]
+  [ "$(ls -A "$SANDBOX/elsewhere")" = "deep.toml" ]
+  [ "$(sed -n 2p "$SANDBOX/elsewhere/deep.toml")" = 'prompt = "linked"' ]
+
+  run_installer --uninstall --agent gemini
+  [ "$status" -eq 0 ]
+  [ ! -e "$GEMINI_COMMAND" ]
+  [ -L "$GEMINI_NAMESPACE" ]
+  [ "$(sed -n 2p "$SANDBOX/elsewhere/deep.toml")" = 'prompt = "linked"' ]
+}
+
+@test "a namespace path that is a plain file is left alone and does not stop the install" {
+  mkdir -p "$FAKE_HOME/.gemini/commands"
+  printf 'mine\n' >"$GEMINI_NAMESPACE"
+  run_installer --local "$CHECKOUT" --agent gemini
+  [ "$status" -eq 0 ]
+  [ "$(cat "$GEMINI_NAMESPACE")" = "mine" ]
+  [ -f "$GEMINI_COMMAND" ]
+  [ -f "$FAKE_HOME/.gemini/skills/disk-cleanup/SKILL.md" ]
+  run_installer --uninstall --agent gemini
+  [ "$status" -eq 0 ]
+  [ "$(cat "$GEMINI_NAMESPACE")" = "mine" ]
+}
+
+@test "a source without a namespaced command file fails before anything is installed" {
+  rm "$CHECKOUT/commands/gemini/disk-cleanup/scan-only.toml"
+  run_installer --local "$CHECKOUT" --agent claude,gemini
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"commands/gemini/disk-cleanup/scan-only.toml"* ]]
+  [ "$(snapshot_home)" = "." ]
+  printf 'prompt = "no marker"\n' >"$CHECKOUT/commands/gemini/disk-cleanup/scan-only.toml"
+  run_installer --local "$CHECKOUT" --agent gemini
+  [ "$status" -ne 0 ]
+  [ "$(snapshot_home)" = "." ]
 }
 
 @test "SKILL.md takes optional arguments and never lets them skip the confirmation" {
@@ -458,6 +582,80 @@ snapshot_home() {
   grep -qi 'arguments never skip' "$skill"
   run grep -qE '\$[0-9]' "$skill"
   [ "$status" -eq 1 ]
+}
+
+@test "SKILL.md documents scan as the default and scan-only as a mode that never cleans" {
+  local skill="$REPO_ROOT/SKILL.md" phrase
+  grep -qF '| none, or `scan` |' "$skill"
+  for phrase in '`scan-only`' '"report"' '"just check"' '"cek saja"' '"lihat saja"'; do
+    grep -F '| `scan-only` (' "$skill" | grep -qF "$phrase"
+  done
+  grep -q '^### Scan only' "$skill"
+  grep -qi 'do not run `clean` in this' "$skill"
+  grep -q '^12\. Arguments never skip the confirmation step\.' "$skill"
+}
+
+json_get() {
+  /usr/bin/perl "$JSON_TOOL" get "$2" <"$1"
+}
+
+# Value of one frontmatter key of a SKILL.md.
+frontmatter_value() {
+  awk -v key="$2" '
+    NR == 1 { if ($0 != "---") exit; next }
+    $0 == "---" { exit }
+    index($0, key ":") == 1 { sub(/^[^:]*:[ \t]*/, ""); gsub(/^"|"$/, ""); print; exit }' "$1"
+}
+
+@test "plugin manifests parse and agree with SKILL.md on name and version" {
+  local plugin="$REPO_ROOT/.claude-plugin/plugin.json" market="$REPO_ROOT/.claude-plugin/marketplace.json"
+  local version
+  version="$(sed -n 's/^  version: "\(.*\)"$/\1/p' "$REPO_ROOT/SKILL.md")"
+  [ -n "$version" ]
+  [ "$(json_get "$plugin" name)" = "$(frontmatter_value "$REPO_ROOT/SKILL.md" name)" ]
+  [ "$(json_get "$plugin" name)" = "disk-cleanup" ]
+  [ "$(json_get "$plugin" version)" = "$version" ]
+  [ "v$(json_get "$plugin" version)" = "$(sed -n 's/^VERSION="\(.*\)"$/\1/p' "$REPO_ROOT/install.sh")" ]
+  [ "$(json_get "$plugin" author.name)" = "awankkaley" ]
+  [ "$(json_get "$plugin" license)" = "MIT" ]
+  [ "$(json_get "$plugin" repository)" = "https://github.com/awankkaley/disk-cleanup" ]
+  # commands/ holds Gemini CLI and OpenCode files; Claude Code must not load them as plugin commands.
+  [ "$(json_get "$plugin" commands)" = "[]" ]
+  [ -n "$(json_get "$market" name)" ]
+  [ "$(json_get "$market" owner.name)" = "awankkaley" ]
+  [ "$(json_get "$market" plugins.0.name)" = "disk-cleanup" ]
+  [ "$(json_get "$market" plugins.0.source)" = "./" ]
+  [ "$(json_get "$market" plugins.1.name)" = "null" ]
+  [ "$(ls -A "$REPO_ROOT/.claude-plugin" | LC_ALL=C sort | tr '\n' ' ')" = "marketplace.json plugin.json " ]
+}
+
+@test "plugin skills are thin: one per mode, named after their folder, with no rules of their own" {
+  local mode file
+  [ "$(ls -A "$REPO_ROOT/skills" | LC_ALL=C sort | tr '\n' ' ')" = "deep help scan scan-only " ]
+  [ "$(find "$REPO_ROOT/skills" -type f | wc -l | tr -d ' ')" = "4" ]
+  for mode in $MODES; do
+    file="$REPO_ROOT/skills/$mode/SKILL.md"
+    [ "$(frontmatter_value "$file" name)" = "$mode" ]
+    [ -n "$(frontmatter_value "$file" description)" ]
+    grep -qF "Mode for this invocation: \`$mode\`" "$file"
+    grep -qF '${CLAUDE_PLUGIN_ROOT}/SKILL.md' "$file"
+    grep -qF '${CLAUDE_PLUGIN_ROOT}/scripts/' "$file"
+    grep -qF 'hard rules' "$file"
+    grep -qF 'approves nothing' "$file"
+    [ "$(grep -cF '$ARGUMENTS' "$file")" -eq 1 ]
+    run grep -qiE 'clean --token|--token|--categories|--deep|--empty-trash|cleanup\.(sh|ps1)|sudo|^#|^\|' "$file"
+    [ "$status" -eq 1 ]
+    [ "$(wc -l <"$file" | tr -d ' ')" -le 25 ]
+  done
+}
+
+@test "only the default plugin skill can be started by the model" {
+  local mode
+  run grep -q '^disable-model-invocation:' "$REPO_ROOT/skills/scan/SKILL.md"
+  [ "$status" -eq 1 ]
+  for mode in scan-only deep help; do
+    [ "$(frontmatter_value "$REPO_ROOT/skills/$mode/SKILL.md" disable-model-invocation)" = "true" ]
+  done
 }
 
 @test "pinned version and download URL point at the v1.1.0 tag" {

@@ -1,0 +1,15 @@
+{
+  "name": "awankkaley-disk-cleanup",
+  "description": "The disk-cleanup plugin: free disk space on macOS and Windows without showing your files to the AI.",
+  "owner": {
+    "name": "awankkaley",
+    "url": "https://github.com/awankkaley"
+  },
+  "plugins": [
+    {
+      "name": "disk-cleanup",
+      "source": "./",
+      "description": "Free disk space on macOS and Windows privately: scan, see the totals, choose what to clean."
+    }
+  ]
+}

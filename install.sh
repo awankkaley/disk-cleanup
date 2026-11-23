@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Installs the disk-cleanup Agent Skill into the skills directory of each AI agent on this machine,
-# plus a /disk-cleanup command file for the agents that cannot start a skill with a slash command.
+# plus /disk-cleanup command files for the agents that read user-level command files.
 # Usage: install.sh [--agent NAME[,NAME...]] [--uninstall] [--local PATH] [--help]
 set -eu
 
@@ -11,6 +11,8 @@ SKILL_NAME="disk-cleanup"
 COMMAND_MARKER="disk-cleanup-skill:managed-command"
 ARCHIVE_URL="https://github.com/${REPO}/archive/refs/tags/${VERSION}.tar.gz"
 KNOWN_AGENTS="claude codex cursor gemini copilot opencode amp goose agents"
+# One namespaced command per mode, next to the plain /disk-cleanup command.
+COMMAND_MODES="scan scan-only deep help"
 EXIT_USAGE=2
 
 MODE="install"
@@ -38,10 +40,11 @@ Without --agent, the skill is installed for every agent found on this machine.
 Only the "${SKILL_NAME}" folder inside each agent's skills directory is written or removed,
 and an existing folder of that name is only replaced or removed when it is this skill.
 
-Gemini CLI and OpenCode cannot start a skill with a slash command, so they also get one
-small /${SKILL_NAME} command file (~/.gemini/commands/${SKILL_NAME}.toml,
-~/.config/opencode/commands/${SKILL_NAME}.md). A file of that name that this installer
-did not write is never replaced or removed.
+Gemini CLI and OpenCode also get small command files that only start the skill:
+/${SKILL_NAME} plus one per mode in a "${SKILL_NAME}" subfolder (Gemini CLI shows
+them as /${SKILL_NAME}:scan, :scan-only, :deep, :help; OpenCode as /${SKILL_NAME}/scan
+and so on), under ~/.gemini/commands/ and ~/.config/opencode/commands/. A file of
+the same name that this installer did not write is never replaced or removed.
 EOF
 }
 
@@ -88,22 +91,34 @@ agent_skills_dir() {
   esac
 }
 
-# Command file inside the source, for the agents that cannot start a skill with
-# a slash command but do read user-level command files. Empty for all others.
-agent_command_source() {
+# The agents that read user-level command files, and where. Empty for all others.
+agent_commands_dir() {
   case "$1" in
-    gemini) printf '%s' "commands/gemini/${SKILL_NAME}.toml" ;;
-    opencode) printf '%s' "commands/opencode/${SKILL_NAME}.md" ;;
+    gemini) printf '%s' "$HOME/.gemini/commands" ;;
+    opencode) printf '%s' "$HOME/.config/opencode/commands" ;;
     *) : ;;
   esac
 }
 
-agent_command_dest() {
+agent_command_extension() {
   case "$1" in
-    gemini) printf '%s' "$HOME/.gemini/commands/${SKILL_NAME}.toml" ;;
-    opencode) printf '%s' "$HOME/.config/opencode/commands/${SKILL_NAME}.md" ;;
+    gemini) printf 'toml' ;;
+    opencode) printf 'md' ;;
     *) : ;;
   esac
+}
+
+# Command files of an agent, one per line: the plain command, then one per mode
+# in the namespace subfolder. The same relative path is used under
+# commands/<agent>/ in the source and under the agent's commands directory.
+agent_command_files() {
+  local extension mode
+  extension=$(agent_command_extension "$1")
+  [ -n "$extension" ] || return 0
+  printf '%s\n' "${SKILL_NAME}.${extension}"
+  for mode in $COMMAND_MODES; do
+    printf '%s\n' "${SKILL_NAME}/${mode}.${extension}"
+  done
 }
 
 is_known_agent() {
@@ -283,37 +298,52 @@ is_our_command() {
 check_command_sources() {
   local name relative
   for name in $1; do
-    relative=$(agent_command_source "$name")
-    [ -n "$relative" ] || continue
-    is_our_command "$SOURCE_DIR/$relative" ||
-      die "The source has no valid $relative. It does not look like a ${SKILL_NAME} ${VERSION} checkout."
+    for relative in $(agent_command_files "$name"); do
+      is_our_command "$SOURCE_DIR/commands/$name/$relative" ||
+        die "The source has no valid commands/$name/$relative. It does not look like a ${SKILL_NAME} ${VERSION} checkout."
+    done
   done
 }
 
-# A command file that is not ours is the user's own: it is skipped, never replaced.
-install_command() {
-  local relative dest
-  relative=$(agent_command_source "$1")
-  [ -n "$relative" ] || return 0
-  dest=$(agent_command_dest "$1")
+# install_command_file AGENT SOURCE DEST. A command file that is not ours is the
+# user's own: it is skipped, never replaced.
+install_command_file() {
+  local agent="$1" source="$2" dest="$3"
   if [ -e "$dest" ] || [ -L "$dest" ]; then
     if ! is_our_command "$dest"; then
       info "  skipped    $dest already exists and was not written by this installer; left untouched."
-      info "             The skill is installed, but /${SKILL_NAME} runs your own command for $1."
+      info "             The skill is installed, but that command stays your own for $agent."
       return 0
     fi
   fi
-  if ! mkdir -p "${dest%/*}" 2>/dev/null || ! cp "$SOURCE_DIR/$relative" "$dest" 2>/dev/null; then
-    warn "could not write $dest. The skill is installed, but /${SKILL_NAME} is not available for $1."
+  if ! mkdir -p "${dest%/*}" 2>/dev/null || ! cp "$source" "$dest" 2>/dev/null; then
+    warn "could not write $dest. The skill is installed, but that command is not available for $agent."
     return 0
   fi
   info "  installed  $dest"
 }
 
-uninstall_command() {
-  local dest
-  dest=$(agent_command_dest "$1")
-  [ -n "$dest" ] || return 0
+# The namespace subfolder is only used when it is a real folder: nothing is
+# written or removed through a symlink the user put there.
+install_command() {
+  local commands_dir relative
+  commands_dir=$(agent_commands_dir "$1")
+  [ -n "$commands_dir" ] || return 0
+  for relative in $(agent_command_files "$1"); do
+    case "$relative" in
+      */*)
+        if [ -L "$commands_dir/$SKILL_NAME" ]; then
+          info "  skipped    $commands_dir/$relative: the ${SKILL_NAME} folder there is a link; left untouched."
+          continue
+        fi
+        ;;
+    esac
+    install_command_file "$1" "$SOURCE_DIR/commands/$1/$relative" "$commands_dir/$relative"
+  done
+}
+
+uninstall_command_file() {
+  local dest="$1"
   if [ ! -e "$dest" ] && [ ! -L "$dest" ]; then
     return 0
   fi
@@ -323,6 +353,23 @@ uninstall_command() {
   fi
   rm -f "$dest" || die "Could not remove $dest"
   info "  removed    $dest"
+}
+
+# Removes our command files, then the namespace subfolder when nothing is left in it.
+uninstall_command() {
+  local commands_dir relative namespace_dir
+  commands_dir=$(agent_commands_dir "$1")
+  [ -n "$commands_dir" ] || return 0
+  namespace_dir="$commands_dir/$SKILL_NAME"
+  for relative in $(agent_command_files "$1"); do
+    case "$relative" in
+      */*) [ ! -L "$namespace_dir" ] || continue ;;
+    esac
+    uninstall_command_file "$commands_dir/$relative"
+  done
+  if [ ! -L "$namespace_dir" ] && [ -d "$namespace_dir" ] && dir_is_empty "$namespace_dir"; then
+    rmdir "$namespace_dir" 2>/dev/null || :
+  fi
 }
 
 resolve_source() {

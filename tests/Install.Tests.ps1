@@ -3,6 +3,7 @@ BeforeAll {
     $script:repoRoot = [System.IO.Path]::GetFullPath((Join-Path -Path $PSScriptRoot -ChildPath '..'))
     $script:installScript = Join-Path -Path $script:repoRoot -ChildPath 'install.ps1'
     $script:powershellExe = Join-Path -Path $PSHOME -ChildPath 'powershell.exe'
+    $script:commandModes = @('scan', 'scan-only', 'deep', 'help')
 
     # The installer always runs in a child process against a sandboxed USERPROFILE and
     # with --local, so it never downloads anything and never sees the real profile.
@@ -39,6 +40,26 @@ BeforeAll {
             return (Join-Path -Path $script:sandbox.Home -ChildPath '.gemini\commands\disk-cleanup.toml')
         }
         return (Join-Path -Path $script:sandbox.Home -ChildPath '.config\opencode\commands\disk-cleanup.md')
+    }
+
+    # Folder that holds the namespaced command files (one per mode) of an agent.
+    function Get-NamespaceDir {
+        param([string]$Agent)
+        if ($Agent -eq 'gemini') {
+            return (Join-Path -Path $script:sandbox.Home -ChildPath '.gemini\commands\disk-cleanup')
+        }
+        return (Join-Path -Path $script:sandbox.Home -ChildPath '.config\opencode\commands\disk-cleanup')
+    }
+
+    function Get-CommandExtension {
+        param([string]$Agent)
+        if ($Agent -eq 'gemini') { return 'toml' }
+        return 'md'
+    }
+
+    function Get-ChildName {
+        param([string]$Directory)
+        return @(Get-ChildItem -LiteralPath $Directory -Force | ForEach-Object { $_.Name })
     }
 
     function Set-ForeignFile {
@@ -78,6 +99,25 @@ Describe 'install.ps1' {
         }
         Test-Path -LiteralPath (Join-Path -Path (Get-SkillDir -AgentFolder '.claude') -ChildPath 'tests') | Should -BeFalse
         Test-Path -LiteralPath $script:documentFile | Should -BeTrue
+    }
+
+    It 'copies only SKILL.md, LICENSE and scripts, and nothing of the plugin packaging' {
+        if (-not $script:canRun) {
+            Set-ItResult -Skipped -Because 'Windows PowerShell is not available here'
+            return
+        }
+
+        $run = Invoke-Installer -Arguments @('--local', $script:repoRoot, '--agent', 'claude')
+
+        $run.ExitCode | Should -Be 0
+        $names = @(Get-ChildName -Directory (Get-SkillDir -AgentFolder '.claude'))
+        $names.Count | Should -Be 3
+        foreach ($expected in @('SKILL.md', 'LICENSE', 'scripts')) {
+            $names -contains $expected | Should -BeTrue
+        }
+        Test-Path -LiteralPath (Join-Path -Path $script:repoRoot -ChildPath '.claude-plugin\plugin.json') -PathType Leaf | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path -Path $script:repoRoot -ChildPath 'skills\scan\SKILL.md') -PathType Leaf | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path -Path $script:sandbox.Home -ChildPath '.claude\commands') | Should -BeFalse
     }
 
     It 'installs only for the agent named with --agent' {
@@ -222,9 +262,21 @@ Describe 'install.ps1' {
             Test-Path -LiteralPath $commandFile -PathType Leaf | Should -BeTrue
             [System.IO.File]::ReadAllText($commandFile) | Should -Match 'disk-cleanup-skill:managed-command'
         }
+        foreach ($agent in @('gemini', 'opencode')) {
+            $namespaceDir = Get-NamespaceDir -Agent $agent
+            $extension = Get-CommandExtension -Agent $agent
+            @(Get-ChildName -Directory $namespaceDir).Count | Should -Be 4
+            foreach ($mode in $script:commandModes) {
+                $modeFile = Join-Path -Path $namespaceDir -ChildPath ($mode + '.' + $extension)
+                Test-Path -LiteralPath $modeFile -PathType Leaf | Should -BeTrue
+                $text = [System.IO.File]::ReadAllText($modeFile)
+                $text | Should -Match 'disk-cleanup-skill:managed-command'
+                $text.Contains('in the mode `' + $mode + '`:') | Should -BeTrue
+            }
+        }
         Test-SkillInstalled -AgentFolder '.gemini' | Should -BeTrue
         Test-SkillInstalled -AgentFolder '.config\opencode' | Should -BeTrue
-        foreach ($absent in @('.claude\commands', '.cursor\commands', '.copilot\commands', '.agents\commands', '.codex', '.gemini\skills\disk-cleanup\commands')) {
+        foreach ($absent in @('.claude\commands', '.cursor\commands', '.copilot\commands', '.agents\commands', '.codex', '.gemini\skills\disk-cleanup\commands', '.gemini\skills\disk-cleanup\skills', '.gemini\skills\disk-cleanup\.claude-plugin')) {
             Test-Path -LiteralPath (Join-Path -Path $script:sandbox.Home -ChildPath $absent) | Should -BeFalse
         }
     }
@@ -244,9 +296,37 @@ Describe 'install.ps1' {
         $installedBefore | Should -BeTrue
         $run.ExitCode | Should -Be 0
         Test-Path -LiteralPath (Get-CommandFile -Agent 'gemini') | Should -BeFalse
+        Test-Path -LiteralPath (Get-NamespaceDir -Agent 'gemini') | Should -BeFalse
         Test-Path -LiteralPath (Get-SkillDir -AgentFolder '.gemini') | Should -BeFalse
         Test-Path -LiteralPath $neighbour | Should -BeTrue
         Test-Path -LiteralPath (Get-CommandFile -Agent 'opencode') -PathType Leaf | Should -BeTrue
+        @(Get-ChildName -Directory (Get-NamespaceDir -Agent 'opencode')).Count | Should -Be 4
+    }
+
+    It 'never replaces or removes a file in the namespace subfolder that is not its own' {
+        if (-not $script:canRun) {
+            Set-ItResult -Skipped -Because 'Windows PowerShell is not available here'
+            return
+        }
+        $namespaceDir = Get-NamespaceDir -Agent 'gemini'
+        $foreignMode = Join-Path -Path $namespaceDir -ChildPath 'deep.toml'
+        $foreignExtra = Join-Path -Path $namespaceDir -ChildPath 'zqmine.toml'
+        Set-ForeignFile -Path $foreignMode -Text 'prompt = "zqdeep"'
+        Set-ForeignFile -Path $foreignExtra -Text 'prompt = "zqextra"'
+
+        $install = Invoke-Installer -Arguments @('--local', $script:repoRoot, '--agent', 'gemini')
+        $afterInstall = [System.IO.File]::ReadAllText($foreignMode)
+        $ownInstalled = Test-Path -LiteralPath (Join-Path -Path $namespaceDir -ChildPath 'scan.toml') -PathType Leaf
+        $uninstall = Invoke-Installer -Arguments @('--uninstall', '--agent', 'gemini')
+
+        $install.ExitCode | Should -Be 0
+        $afterInstall | Should -Be 'prompt = "zqdeep"'
+        $ownInstalled | Should -BeTrue
+        $uninstall.ExitCode | Should -Be 0
+        @(Get-ChildName -Directory $namespaceDir).Count | Should -Be 2
+        [System.IO.File]::ReadAllText($foreignMode) | Should -Be 'prompt = "zqdeep"'
+        [System.IO.File]::ReadAllText($foreignExtra) | Should -Be 'prompt = "zqextra"'
+        Test-Path -LiteralPath (Get-CommandFile -Agent 'gemini') | Should -BeFalse
     }
 
     It 'never replaces or removes a command file of the same name that is not its own' {

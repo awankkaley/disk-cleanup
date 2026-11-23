@@ -1,5 +1,5 @@
 # Installs the disk-cleanup Agent Skill into the skills directory of each AI agent on this machine,
-# plus a /disk-cleanup command file for the agents that cannot start a skill with a slash command.
+# plus /disk-cleanup command files for the agents that read user-level command files.
 # Usage: install.ps1 [-Agent NAME[,NAME...]] [-Uninstall] [-Local PATH] [-Help]
 # The --agent / --uninstall / --local / --help spellings are accepted too.
 # Arguments are parsed by hand so the script also works when piped to Invoke-Expression.
@@ -18,6 +18,8 @@ function Invoke-DiskCleanupInstaller {
     $CommandMarker = 'disk-cleanup-skill:managed-command'
     $ArchiveUrl = "https://github.com/$Repo/archive/refs/tags/$Version.zip"
     $KnownAgents = @('claude', 'codex', 'cursor', 'gemini', 'copilot', 'opencode', 'amp', 'goose', 'agents')
+    # One namespaced command per mode, next to the plain /disk-cleanup command.
+    $CommandModes = @('scan', 'scan-only', 'deep', 'help')
 
     function Get-HomeDir {
         $homeDir = $env:USERPROFILE
@@ -57,26 +59,33 @@ function Invoke-DiskCleanupInstaller {
         return (Join-Path (Join-Path $HomeDir '.agents') 'skills')
     }
 
-    # Command file for the agents that cannot start a skill with a slash command but do
-    # read user-level command files. Returns $null for every other agent.
-    function Get-AgentCommand {
+    # Command files for the agents that read user-level command files: the plain command,
+    # then one per mode in the namespace subfolder. The same relative path is used under
+    # commands\<agent> in the source and under the agent's commands directory.
+    # Returns $null for every other agent.
+    function Get-AgentCommandSet {
         param([string]$Name, [string]$HomeDir)
-        switch ($Name) {
-            'gemini' {
-                return @{
-                    Source      = (Join-Path (Join-Path 'commands' 'gemini') "$SkillName.toml")
-                    Destination = (Join-Path (Join-Path (Join-Path $HomeDir '.gemini') 'commands') "$SkillName.toml")
-                }
-            }
-            'opencode' {
-                $configDir = Join-Path (Join-Path $HomeDir '.config') 'opencode'
-                return @{
-                    Source      = (Join-Path (Join-Path 'commands' 'opencode') "$SkillName.md")
-                    Destination = (Join-Path (Join-Path $configDir 'commands') "$SkillName.md")
-                }
-            }
+        if ($Name -eq 'gemini') {
+            $extension = 'toml'
+            $commandsDir = Join-Path (Join-Path $HomeDir '.gemini') 'commands'
         }
-        return $null
+        elseif ($Name -eq 'opencode') {
+            $extension = 'md'
+            $commandsDir = Join-Path (Join-Path (Join-Path $HomeDir '.config') 'opencode') 'commands'
+        }
+        else {
+            return $null
+        }
+        $files = @("$SkillName.$extension")
+        foreach ($mode in $CommandModes) {
+            $files += (Join-Path $SkillName "$mode.$extension")
+        }
+        return @{
+            SourceDir    = (Join-Path 'commands' $Name)
+            CommandsDir  = $commandsDir
+            NamespaceDir = (Join-Path $commandsDir $SkillName)
+            Files        = $files
+        }
     }
 
     function Show-Usage {
@@ -95,10 +104,11 @@ function Invoke-DiskCleanupInstaller {
         Write-Output 'Without -Agent, the skill is installed for every agent found on this machine.'
         Write-Output "Only the `"$SkillName`" folder inside each agent's skills directory is written or removed."
         Write-Output ''
-        Write-Output 'Gemini CLI and OpenCode cannot start a skill with a slash command, so they also get one'
-        Write-Output "small /$SkillName command file (.gemini\commands\$SkillName.toml,"
-        Write-Output ".config\opencode\commands\$SkillName.md). A file of that name that this installer"
-        Write-Output 'did not write is never replaced or removed.'
+        Write-Output 'Gemini CLI and OpenCode also get small command files that only start the skill:'
+        Write-Output "/$SkillName plus one per mode in a `"$SkillName`" subfolder (Gemini CLI shows"
+        Write-Output "them as /${SkillName}:scan, :scan-only, :deep, :help; OpenCode as /$SkillName/scan"
+        Write-Output 'and so on), under .gemini\commands and .config\opencode\commands. A file of'
+        Write-Output 'the same name that this installer did not write is never replaced or removed.'
     }
 
     function ConvertTo-AgentName {
@@ -269,12 +279,19 @@ function Invoke-DiskCleanupInstaller {
         }
     }
 
+    # True when the path exists and is a link (symbolic link or junction).
+    function Test-LinkItem {
+        param([string]$Path)
+        if (-not (Test-Path -LiteralPath $Path)) { return $false }
+        $item = Get-Item -LiteralPath $Path -Force
+        return (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+    }
+
     # True for a regular file (never a link) that carries our marker line.
     function Test-OwnCommandFile {
         param([string]$Path)
         if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
-        $item = Get-Item -LiteralPath $Path -Force
-        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return $false }
+        if (Test-LinkItem -Path $Path) { return $false }
         foreach ($line in [IO.File]::ReadAllLines($Path)) {
             if ($line.Contains($CommandMarker)) { return $true }
         }
@@ -286,51 +303,85 @@ function Invoke-DiskCleanupInstaller {
     function Assert-CommandSource {
         param([string[]]$Agents, [string]$HomeDir, [string]$SourceDir)
         foreach ($name in $Agents) {
-            $command = Get-AgentCommand -Name $name -HomeDir $HomeDir
-            if ($null -eq $command) { continue }
-            if (-not (Test-OwnCommandFile -Path (Join-Path $SourceDir $command.Source))) {
-                throw "The source has no valid $($command.Source). It does not look like a $SkillName $Version checkout."
+            $commandSet = Get-AgentCommandSet -Name $name -HomeDir $HomeDir
+            if ($null -eq $commandSet) { continue }
+            foreach ($relative in @($commandSet.Files)) {
+                $source = Join-Path $commandSet.SourceDir $relative
+                if (-not (Test-OwnCommandFile -Path (Join-Path $SourceDir $source))) {
+                    throw "The source has no valid $source. It does not look like a $SkillName $Version checkout."
+                }
             }
         }
     }
 
     # A command file that is not ours is the user's own: it is skipped, never replaced.
-    function Install-Command {
-        param([string]$Name, [string]$HomeDir, [string]$SourceDir)
-        $command = Get-AgentCommand -Name $Name -HomeDir $HomeDir
-        if ($null -eq $command) { return }
-        $destination = $command.Destination
-        if ((Test-Path -LiteralPath $destination) -and -not (Test-OwnCommandFile -Path $destination)) {
-            Write-Output "  skipped    $destination already exists and was not written by this installer; left untouched." | Out-Host
-            Write-Output "             The skill is installed, but /$SkillName runs your own command for $Name." | Out-Host
+    function Install-CommandFile {
+        param([string]$Name, [string]$Source, [string]$Destination)
+        if ((Test-Path -LiteralPath $Destination) -and -not (Test-OwnCommandFile -Path $Destination)) {
+            Write-Output "  skipped    $Destination already exists and was not written by this installer; left untouched." | Out-Host
+            Write-Output "             The skill is installed, but that command stays your own for $Name." | Out-Host
             return
         }
         try {
-            $commandsDir = Split-Path -Parent $destination
-            if (-not (Test-Path -LiteralPath $commandsDir)) {
-                New-Item -ItemType Directory -Path $commandsDir -Force | Out-Null
+            $parentDir = Split-Path -Parent $Destination
+            if (-not (Test-Path -LiteralPath $parentDir)) {
+                New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
             }
-            Copy-Item -LiteralPath (Join-Path $SourceDir $command.Source) -Destination $destination -Force
+            Copy-Item -LiteralPath $Source -Destination $Destination -Force
         }
         catch {
-            Write-Output "Warning: could not write $destination. The skill is installed, but /$SkillName is not available for $Name." | Out-Host
+            Write-Output "Warning: could not write $Destination. The skill is installed, but that command is not available for $Name." | Out-Host
             return
         }
-        Write-Output "  installed  $destination" | Out-Host
+        Write-Output "  installed  $Destination" | Out-Host
     }
 
-    function Uninstall-Command {
-        param([string]$Name, [string]$HomeDir)
-        $command = Get-AgentCommand -Name $Name -HomeDir $HomeDir
-        if ($null -eq $command) { return }
-        $destination = $command.Destination
-        if (-not (Test-Path -LiteralPath $destination)) { return }
-        if (-not (Test-OwnCommandFile -Path $destination)) {
-            Write-Output "  kept       $destination was not written by this installer; left untouched." | Out-Host
+    # The namespace subfolder is only used when it is a real folder: nothing is written or
+    # removed through a link the user put there.
+    function Install-Command {
+        param([string]$Name, [string]$HomeDir, [string]$SourceDir)
+        $commandSet = Get-AgentCommandSet -Name $Name -HomeDir $HomeDir
+        if ($null -eq $commandSet) { return }
+        $namespaceIsLink = Test-LinkItem -Path $commandSet.NamespaceDir
+        $plainFile = @($commandSet.Files)[0]
+        foreach ($relative in @($commandSet.Files)) {
+            $destination = Join-Path $commandSet.CommandsDir $relative
+            if ($namespaceIsLink -and ($relative -ne $plainFile)) {
+                Write-Output "  skipped    $destination`: the $SkillName folder there is a link; left untouched." | Out-Host
+                continue
+            }
+            $source = Join-Path (Join-Path $SourceDir $commandSet.SourceDir) $relative
+            Install-CommandFile -Name $Name -Source $source -Destination $destination
+        }
+    }
+
+    function Uninstall-CommandFile {
+        param([string]$Destination)
+        if (-not (Test-Path -LiteralPath $Destination)) { return }
+        if (-not (Test-OwnCommandFile -Path $Destination)) {
+            Write-Output "  kept       $Destination was not written by this installer; left untouched." | Out-Host
             return
         }
-        Remove-Item -LiteralPath $destination -Force
-        Write-Output "  removed    $destination" | Out-Host
+        Remove-Item -LiteralPath $Destination -Force
+        Write-Output "  removed    $Destination" | Out-Host
+    }
+
+    # Removes our command files, then the namespace subfolder when nothing is left in it.
+    function Uninstall-Command {
+        param([string]$Name, [string]$HomeDir)
+        $commandSet = Get-AgentCommandSet -Name $Name -HomeDir $HomeDir
+        if ($null -eq $commandSet) { return }
+        $namespaceDir = $commandSet.NamespaceDir
+        $namespaceIsLink = Test-LinkItem -Path $namespaceDir
+        $plainFile = @($commandSet.Files)[0]
+        foreach ($relative in @($commandSet.Files)) {
+            if ($namespaceIsLink -and ($relative -ne $plainFile)) { continue }
+            Uninstall-CommandFile -Destination (Join-Path $commandSet.CommandsDir $relative)
+        }
+        if ($namespaceIsLink -or -not (Test-Path -LiteralPath $namespaceDir -PathType Container)) { return }
+        if (@(Get-ChildItem -LiteralPath $namespaceDir -Force).Count -eq 0) {
+            Remove-Item -LiteralPath $namespaceDir -Force
+        }
     }
 
     function Invoke-Install {

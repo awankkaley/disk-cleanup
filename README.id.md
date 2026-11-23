@@ -79,7 +79,7 @@ dan di folder mana, bukan isinya.
 
 ## Cara memasang
 
-Pilih salah satu dari tiga cara. Setelah terpasang, mulai ulang agent AI kamu.
+Pilih salah satu dari empat cara. Setelah terpasang, mulai ulang agent AI kamu.
 
 ### 1. Dengan skills CLI
 
@@ -93,7 +93,7 @@ npx skills add awankkaley/disk-cleanup -g
 (atau `codex`, `cursor`, `gemini-cli`, ...) untuk memilih agent, atau biarkan CLI yang bertanya.
 
 Skills CLI memasang skill-nya saja, dan itu sudah cukup untuk kebanyakan agent. Satu-satunya yang tidak
-ikut terpasang adalah file perintah `/disk-cleanup` untuk Gemini CLI dan OpenCode (lihat "Cara
+ikut terpasang adalah file-file perintah `/disk-cleanup` untuk Gemini CLI dan OpenCode (lihat "Cara
 memakai"). Di dua agent itu, cukup minta dengan bahasa sehari-hari, atau pakai installer satu baris.
 
 ### 2. Installer satu baris
@@ -112,11 +112,12 @@ irm https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.1.0/install.ps1
 
 Installer mengunduh rilis v1.1.0, mencari agent AI yang ada di komputermu, lalu menyalin tiga hal ke
 folder skills tiap agent: `SKILL.md`, `scripts/`, dan `LICENSE`. Khusus Gemini CLI dan OpenCode, yang
-tidak bisa memanggil skill lewat perintah garis miring, installer juga menambahkan satu file perintah
-kecil (`~/.gemini/commands/disk-cleanup.toml`, `~/.config/opencode/commands/disk-cleanup.md`) yang
-isinya hanya meneruskan ke skill. Kalau kamu sudah punya file perintah sendiri dengan nama yang sama,
-installer tidak menyentuhnya dan memberi tahu kamu. Installer tidak menjalankan pembersihan, tidak
-butuh hak administrator, dan tidak menulis ke tempat lain.
+tidak bisa memanggil skill lewat perintah garis miring, installer juga menambahkan beberapa file
+perintah kecil yang isinya hanya meneruskan ke skill: `disk-cleanup.toml` dan folder `disk-cleanup/`
+berisi satu file per mode di `~/.gemini/commands/`, serta padanannya berupa file `.md` di
+`~/.config/opencode/commands/`. Kalau kamu sudah punya file perintah sendiri dengan salah satu nama
+itu, installer tidak menyentuhnya dan memberi tahu kamu. Installer tidak menjalankan pembersihan,
+tidak butuh hak administrator, dan tidak menulis ke tempat lain.
 
 Untuk memasang hanya ke agent tertentu:
 
@@ -149,32 +150,57 @@ dengan agent kamu:
 Di Windows, `~` adalah folder pengguna kamu, misalnya `C:\Users\<kamu>`.
 
 Opsional, supaya perintah `/disk-cleanup` tersedia di Gemini CLI atau OpenCode: salin juga
-`commands/gemini/disk-cleanup.toml` ke `~/.gemini/commands/`, atau `commands/opencode/disk-cleanup.md`
-ke `~/.config/opencode/commands/`.
+`commands/gemini/disk-cleanup.toml` dan folder `commands/gemini/disk-cleanup/` ke
+`~/.gemini/commands/`, atau `commands/opencode/disk-cleanup.md` dan folder
+`commands/opencode/disk-cleanup/` ke `~/.config/opencode/commands/`.
+
+### 4. Plugin Claude Code
+
+Khusus Claude Code. Di dalam Claude Code, ketik dua perintah ini:
+
+```text
+/plugin marketplace add awankkaley/disk-cleanup
+/plugin install disk-cleanup@awankkaley-disk-cleanup
+```
+
+Atau lewat terminal: `claude plugin marketplace add awankkaley/disk-cleanup`, lalu
+`claude plugin install disk-cleanup@awankkaley-disk-cleanup`. Di Claude Code 2.1.275 ke atas cukup satu
+langkah: `/plugin install disk-cleanup --marketplace awankkaley/disk-cleanup`.
+
+Lewat plugin, tiap mode punya perintahnya sendiri: `/disk-cleanup:scan`, `/disk-cleanup:scan-only`,
+`/disk-cleanup:deep`, dan `/disk-cleanup:help`. Lewat skill biasa (cara 1 sampai 3), perintahnya cuma
+satu dan modenya ditulis di belakang: `/disk-cleanup [deep|help|scan-only]`. Dua-duanya mengikuti
+instruksi yang sama dan menjalankan skrip yang sama. Kalau kamu memasang keduanya, skill ini muncul dua
+kali di Claude Code, jadi pilih salah satu saja.
 
 ## Cara memakai
 
 ### Ketik perintah
 
-| Agent | Ketik ini | Scan mendalam (`node_modules` lama) |
-| --- | --- | --- |
-| Claude Code | `/disk-cleanup` | `/disk-cleanup deep` |
-| Cursor | `/disk-cleanup` (pilih dari menu `/`) | `/disk-cleanup deep` |
-| GitHub Copilot CLI | `/disk-cleanup` | `/disk-cleanup deep` |
-| OpenAI Codex CLI | `$disk-cleanup` (atau pilih lewat `/skills`) | `$disk-cleanup deep` |
-| Gemini CLI | `/disk-cleanup` ¹ | `/disk-cleanup deep` |
-| OpenCode | `/disk-cleanup` ¹, atau `@disk-cleanup` | `/disk-cleanup deep` |
-| Goose | `/skills disk-cleanup`, lalu sampaikan permintaanmu | minta scan mendalam |
-| Amp | tidak ada perintah; bilang "pakai skill disk-cleanup" | minta scan mendalam |
+| Agent | Pindai, lalu pilih yang dibersihkan | Laporan saja | Scan mendalam (`node_modules` lama) |
+| --- | --- | --- | --- |
+| Claude Code, plugin | `/disk-cleanup:scan` | `/disk-cleanup:scan-only` | `/disk-cleanup:deep` |
+| Claude Code, skill biasa | `/disk-cleanup` | `/disk-cleanup scan-only` | `/disk-cleanup deep` |
+| Gemini CLI ¹ | `/disk-cleanup:scan` | `/disk-cleanup:scan-only` | `/disk-cleanup:deep` |
+| OpenCode ¹ | `/disk-cleanup/scan` | `/disk-cleanup/scan-only` | `/disk-cleanup/deep` |
+| Cursor | `/disk-cleanup` (pilih dari menu `/`) | `/disk-cleanup scan-only` | `/disk-cleanup deep` |
+| GitHub Copilot CLI | `/disk-cleanup` | `/disk-cleanup scan-only` | `/disk-cleanup deep` |
+| OpenAI Codex CLI | `$disk-cleanup` (atau pilih lewat `/skills`) | `$disk-cleanup scan-only` | `$disk-cleanup deep` |
+| Goose | `/skills disk-cleanup`, lalu sampaikan permintaanmu | minta laporan saja | minta scan mendalam |
+| Amp | tidak ada perintah; bilang "pakai skill disk-cleanup" | minta laporan saja | minta scan mendalam |
 
-¹ Butuh file perintah yang ditambahkan installer satu baris. Tanpa file itu (pasang lewat skills CLI
-atau salin manual), minta saja dengan bahasa sehari-hari; cara kerja skill-nya sama.
+¹ Butuh file perintah yang ditambahkan installer satu baris. Di dalamnya juga ada `/disk-cleanup` polos
+yang menerima kata tambahan seperti skill biasa, dan perintah `help` (`/disk-cleanup:help` di Gemini
+CLI, `/disk-cleanup/help` di OpenCode). Tanpa file itu (pasang lewat skills CLI atau salin manual),
+minta saja dengan bahasa sehari-hari; cara kerja skill-nya sama.
 
-Yang bisa ditambahkan setelah perintah:
+Perintah bertitik dua atau bergaris miring seperti di atas hanya ada di plugin Claude Code, Gemini CLI,
+dan OpenCode. Di agent lain skill-nya cuma satu, dan modenya kamu tulis di belakang namanya:
 
 | Kamu ketik | Yang terjadi |
 | --- | --- |
-| tanpa tambahan | Memindai lalu menampilkan tabel. |
+| tanpa tambahan, atau `scan` | Memindai, menampilkan tabel, lalu menanyakan apa yang mau dibersihkan. |
+| `scan-only` | Memindai, menampilkan tabel dan total ruang yang bisa dikosongkan, lalu berhenti. Tidak ada yang dibersihkan dan kamu tidak ditawari apa-apa; jalankan perintah biasa kalau nanti mau membersihkan. |
 | `deep` | Sekalian mencari folder `node_modules` lama, dikelompokkan menurut berapa lama tidak disentuh. |
 | `help` | Menjelaskan skill ini dan pilihan di atas. Tidak menjalankan apa pun. |
 
@@ -321,13 +347,15 @@ curl -fsSL https://raw.githubusercontent.com/awankkaley/disk-cleanup/v1.1.0/inst
 ```
 
 Kalau dulu memasang lewat skills CLI: `npx skills remove disk-cleanup -g`. Kalau menyalin manual, hapus
-folder `disk-cleanup` dari folder skills agent kamu.
+folder `disk-cleanup` dari folder skills agent kamu. Kalau memasang plugin Claude Code:
+`claude plugin uninstall disk-cleanup@awankkaley-disk-cleanup`, lalu
+`claude plugin marketplace remove awankkaley-disk-cleanup`.
 
 `install.sh` hanya mau menimpa atau menghapus folder `disk-cleanup` yang memang skill ini (`SKILL.md`-nya
 berisi `name: disk-cleanup`). Kalau ternyata ada folder lain dengan nama yang sama, installer berhenti
 dan tidak mengubah apa pun. File perintah untuk Gemini CLI dan OpenCode diperlakukan sama hati-hatinya:
 hanya dihapus kalau memuat baris penanda dari installer, jadi perintah `disk-cleanup` buatanmu sendiri
-tetap aman.
+tetap aman, dan subfolder `disk-cleanup` baru ikut dihapus kalau isinya sudah kosong.
 
 Skrip menyimpan satu folder state kecil (token scan terakhir dan log yang pernah kamu minta). Folder itu
 juga boleh dihapus: `~/Library/Application Support/disk-cleanup` di macOS, `%LOCALAPPDATA%\disk-cleanup`

@@ -135,7 +135,7 @@ sub walk_strings {
 
 if ($command eq 'get') {
   my $node = $doc;
-  $node = $node->{$_} for split /\./, $ARGV[0];
+  $node = ref $node eq 'ARRAY' ? $node->[$_] : $node->{$_} for split /\./, $ARGV[0];
   print show($node), "\n";
 } elsif ($command eq 'cat') {
   print show(by_id($doc->{categories}, $ARGV[0])->{ $ARGV[1] }), "\n";

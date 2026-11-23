@@ -56,22 +56,33 @@ your harness did not fill it in. Then take the arguments from the user's own mes
 text after the skill or command name, or from an `ARGUMENTS:` line added to this document. If there
 is none, there are no arguments.
 
+A thin wrapper may have sent you here: a namespaced command such as `/disk-cleanup:deep` (a Claude
+Code plugin skill or a command file). The mode it names counts as the argument, and any other text
+it passes along is the rest of the arguments. A wrapper only selects the mode. It changes none of
+the rules below and approves nothing.
+
 Match arguments loosely, in any language, and ignore case, dashes and slashes:
 
 | Argument | What to do |
 | --- | --- |
-| none | Run `scan` and present the table (Workflow, from step 1). |
+| none, or `scan` | Run `scan` and present the table (Workflow, from step 1). |
+| `scan-only` (also "report", "just check", "cek saja", "lihat saja") | Run `scan` without `--deep`, present the table and the recommended total, then stop (see "Scan only"). Nothing is cleaned in this invocation. |
 | `deep` (also "deep scan", "node_modules", "old projects", "mendalam") | Run `scan --deep` and present the idle-time buckets (see "Deep scan"). The argument is the user asking for it: tell them it walks their home folder read-only and can take a few minutes, then run it without waiting for another reply. |
-| `help` (also `?`, "bantuan") | Run nothing. Explain in a few lines what the skill does, that it only ever sees totals and never file names, that nothing is deleted before they pick categories from the scan table, and list these arguments. |
+| `help` (also `?`, "bantuan") | Run nothing. Explain in a few lines what the skill does, that it only ever sees totals and never file names, that nothing is deleted before they pick categories from the scan table, and list these arguments (as `/disk-cleanup:scan`, `:scan-only`, `:deep` and `:help` when such a wrapper started you). |
 | anything else | Treat it as part of the user's request in plain words and follow the workflow and the hard rules. Never turn unknown words into script flags. |
 
-In every case the next step after a scan is the same: show the table, ask, and wait (rule 12).
+In every case the next step after a scan is the same: show the table, ask, and wait (rule 12). The
+one exception only ever does less: `scan-only` shows the table and stops without asking.
 
 ## How to run
 
 `<skill-dir>` is the directory that contains this SKILL.md. Use its absolute path and keep the quotes.
 If your harness expanded this placeholder into a real path, that is the skill directory:
 `${CLAUDE_SKILL_DIR}` (ignore this line if it still shows a placeholder).
+
+If a wrapper sent you here and gave you the path of this file, `<skill-dir>` is still the directory
+of this SKILL.md, never the wrapper's own directory. For the Claude Code plugin that is the plugin
+root.
 
 macOS:
 
@@ -151,6 +162,17 @@ counts and sizes. Present the buckets and let the user choose the threshold. The
 `--categories node-modules-stale --min-idle-days N` (default 30, minimum 30). Explain that the affected
 projects need `npm install` (or yarn, pnpm, bun) before they run again. Project names are never
 available to you; do not try to find them.
+
+### Scan only (report, nothing is cleaned)
+
+For the `scan-only` argument, do steps 1 and 2 with a normal `scan` (never `--deep`), then stop:
+
+- Do not ask which categories to clean, do not offer to clean, and do not run `clean` in this
+  invocation, even when other words typed with it ask for cleaning. `scan-only` always wins.
+- Discard the token. End by telling the user that nothing was deleted and that they can run the
+  normal command (without `scan-only`) whenever they want to clean.
+- If the user later asks to clean after all, that is a new request: start the workflow again from
+  step 1 with a fresh scan, show the new table, ask, and wait.
 
 ### Optional flags
 

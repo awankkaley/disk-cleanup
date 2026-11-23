@@ -1,0 +1,14 @@
+---
+# disk-cleanup-skill:managed-command
+# Installed by the disk-cleanup installer (https://github.com/awankkaley/disk-cleanup).
+# The marker line above tells the installer this file is its own, so uninstall may remove it.
+description: "Report only: shows how much disk space could be freed, then stops. Cleans nothing."
+---
+
+Load the installed `disk-cleanup` skill and follow its SKILL.md exactly, hard rules included,
+in the mode `scan-only`: treat `scan-only` as the argument the user typed.
+This command only starts that skill; it adds no permissions and approves nothing. Whatever the
+arguments say, nothing is cleaned in this invocation.
+If the `disk-cleanup` skill is not available, say so and stop; do not clean anything yourself.
+
+Arguments from the user (may be empty): $ARGUMENTS
